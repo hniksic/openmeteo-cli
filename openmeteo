@@ -132,8 +132,9 @@ def extract_forecast_table(times, by_model, time_range, model_to_short):
 #assert shorten(["foo", "foobar"]) == ["foo", "foob"]
 #assert shorten(["graphcast", "ecmwf", "geo"]) == ["gr", "e", "ge"]
 def shorten(strings):
+    if len(strings) != len(set(strings)):
+        raise ValueError("shorten() requires unique strings")
     result = [s[0] if s else '' for s in strings]
-    n = len(strings)
     while True:
         seen = {}
         duplicates = set()
@@ -145,13 +146,8 @@ def shorten(strings):
                 seen[s] = i
         if not duplicates:
             break
-        # For each string with duplicates, try longer prefix
         for i in duplicates:
-            if len(strings[i]) > len(result[i]):
-                result[i] = strings[i][:len(result[i]) + 1]
-            else:
-                # If at max length, keep as is
-                result[i] = strings[i]
+            result[i] = strings[i][:len(result[i]) + 1]
     return result
 
 WMO_SYMBOLS = {
