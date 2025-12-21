@@ -32,26 +32,19 @@ forecast is shown.
 
 The program outputs forecast as a text table. The first column is the date (with
 consecutive equal dates omitted for readability), followed by hour, and then by
-temperature and precipitation for each forecast model:
+weather symbol, temperature and precipitation for each forecast model:
 
 ```
-$ forecast zagreb today
+$ openmeteo forecast zagreb today
 Forecast for Grad Zagreb, Hrvatska (g=gfs_graphcast025, e=ecmwf_ifs025)
-Date       Hour T/°C (g) Rain/mm (g) T/°C (e) Rain/mm (e)
-2025-04-27   10     13.5           0     12.9           0
-             11     15.2           0     14.0           0
-             12     16.9           0     15.1           0
-             13     18.2           0     16.3           0
-             14     19.0           0     17.1           0
-             15     19.0           0     17.6           0
-             16     18.8           0     17.9           0
-             17     18.1           0     17.6           0
-             18     17.2           0     16.6           0
-             19     16.4           0     15.2           0
-             20     15.6           0     13.9           0
-             21     14.6           0     13.1           0
-             22     13.6           0     12.4           0
-             23     12.4           0     11.7           0
+                g  g    g    e  e    e
+Date       Hour    Temp Rain    Temp Rain
+2025-12-22  00h ⛅   4°      ☁    3°
+            01h ⛅   4°      ☁    3°
+            02h ⛅   4°      ☁    3°
+            ...
+            22h 🌤   4°      ☁    4°
+            23h 🌤   4°      ☁    4°
 ```
 
 ## Current weather
@@ -59,10 +52,10 @@ Date       Hour T/°C (g) Rain/mm (g) T/°C (e) Rain/mm (e)
 The `current` subcommand shows the current weather for a location:
 
 ```
-openmeteo current zagreb
+$ openmeteo current zagreb
 Current weather for Grad Zagreb, Hrvatska
-Time             T/°C Rain/mm
-2025-04-27 22:15 15.0       0
+Time                Temp Rain
+2025-12-21 23:15 ☁    4°
 ```
 
 The location is interpreted the same as for `forecast`.
