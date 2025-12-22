@@ -125,7 +125,7 @@ def extract_forecast_table(times, by_model, time_range):
         # keeping Rain column tight (it's right-justified, so padding would go left)
         headers.extend(["", "Temp", "Rain", ""])
         columns.append([weather_symbol(c) for c in codes])
-        columns.append([f'{t:.0f}°' if t is not None else '-' for t in temps])
+        columns.append([f'{round(t)}°' if t is not None else '-' for t in temps])
         columns.append(precips)
         columns.append([''] * num_rows)
         groups.append((model, 4))
@@ -319,7 +319,7 @@ def do_current(args):
     pretty_print(["Time", "", "Temp", "Rain"],
                  [current.time.strftime("%Y-%m-%d %H:%M")],
                  [weather_symbol(current.weather.code)],
-                 [f'{current.weather.temp:.0f}°'],
+                 [f'{round(current.weather.temp)}°'],
                  ['' if current.weather.precip==0
                   else '-' if current.weather.precip is None
                   else current.weather.precip])
