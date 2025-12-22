@@ -107,6 +107,7 @@ def extract_forecast_table(times, by_model, time_range):
     columns.append([dt.strftime('%Hh') for dt in times if in_range(dt)])
 
     groups = [(None, 2)]  # first 2 columns have no group header
+    num_rows = sum(1 for dt in times if in_range(dt))
     for model, data in by_model.items():
         temps, precips, codes = [], [], []
         for time, weather in zip(times, data):
@@ -120,11 +121,14 @@ def extract_forecast_table(times, by_model, time_range):
                 precips.append('-')
             else:
                 precips.append(weather.precip)
-        headers.extend(["", "Temp", "Rain"])
+        # Trailing empty column absorbs excess width when model name is wide,
+        # keeping Rain column tight (it's right-justified, so padding would go left)
+        headers.extend(["", "Temp", "Rain", ""])
         columns.append([weather_symbol(c) for c in codes])
         columns.append([f'{t:.0f}°' if t is not None else '-' for t in temps])
         columns.append(precips)
-        groups.append((model, 3))
+        columns.append([''] * num_rows)
+        groups.append((model, 4))
 
     return headers, columns, groups
 
