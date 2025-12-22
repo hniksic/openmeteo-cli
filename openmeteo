@@ -97,15 +97,16 @@ def download_current(latitude, longitude):
 def dedup(iterable):
     return ["" if i > 0 else k for k, g in itertools.groupby(iterable) for i in range(len(list(g)))]
 
-def extract_forecast_table(times, by_model, time_range, model_to_short):
+def extract_forecast_table(times, by_model, time_range):
     start_time, end_time = time_range
     in_range = lambda dt: start_time <= dt < end_time
 
-    headers = ["\nDate", "\nHour"]
+    headers = ["Date", "Hour"]
     columns = []
     columns.append(dedup(dt.date() for dt in times if in_range(dt)))
     columns.append([dt.strftime('%Hh') for dt in times if in_range(dt)])
 
+    groups = [(None, 2)]  # first 2 columns have no group header
     for model, data in by_model.items():
         temps, precips, codes = [], [], []
         for time, weather in zip(times, data):
@@ -119,36 +120,13 @@ def extract_forecast_table(times, by_model, time_range, model_to_short):
                 precips.append('-')
             else:
                 precips.append(weather.precip)
-        headers.append(f"{model_to_short[model]}\n")
+        headers.extend(["", "Temp", "Rain"])
         columns.append([weather_symbol(c) for c in codes])
-        headers.append(f"{model_to_short[model]}\nTemp")
         columns.append([f'{t:.0f}°' if t is not None else '-' for t in temps])
-        headers.append(f"{model_to_short[model]}\nRain")
         columns.append(precips)
+        groups.append((model, 3))
 
-    return headers, columns
-
-#assert shorten(["foo", "bar"]) == ["f", "b"]
-#assert shorten(["foo", "foobar"]) == ["foo", "foob"]
-#assert shorten(["graphcast", "ecmwf", "geo"]) == ["gr", "e", "ge"]
-def shorten(strings):
-    if len(strings) != len(set(strings)):
-        raise ValueError("shorten() requires unique strings")
-    result = [s[0] if s else '' for s in strings]
-    while True:
-        seen = {}
-        duplicates = set()
-        for i, s in enumerate(result):
-            if s in seen:
-                duplicates.add(i)
-                duplicates.add(seen[s])
-            else:
-                seen[s] = i
-        if not duplicates:
-            break
-        for i in duplicates:
-            result[i] = strings[i][:len(result[i]) + 1]
-    return result
+    return headers, columns, groups
 
 WMO_SYMBOLS = {
     0: '\N{BLACK SUN WITH RAYS}',                       # Clear sky
@@ -183,7 +161,7 @@ WMO_SYMBOLS = {
 
 def _grapheme_width(char):
     eaw = unicodedata.east_asian_width(char)
-    return 2 if eaw in ('F', 'W', 'A') else 1
+    return 2 if eaw in ('F', 'W') else 1
 
 def weather_symbol(code):
     # Add a space after narrow emoji so all symbols have width 2, allowing alignment with
@@ -206,12 +184,33 @@ def _rjust(s, width):
 def _fmt(o):
     return '-' if o is None else str(o)
 
-def pretty_print(headers, *data):
-    headers = [s.split('\n') for s in headers]
-    widths = [max((display_width(n) for n in itertools.chain(h, c)))
-              for h, c in zip(headers, data)]
-    for header_row in itertools.zip_longest(*headers, fillvalue=''):
-        print(" ".join(_ljust(s, width) for width, s in zip(widths, header_row)))
+def pretty_print(headers, *data, groups=None):
+    widths = [max(display_width(h), max((display_width(_fmt(v)) for v in col), default=0))
+              for h, col in zip(headers, data)]
+
+    # When groups are provided, widen columns so group names fit, then print group header row
+    if groups:
+        col = 0
+        for name, count in groups:
+            if name is not None:
+                span_width = sum(widths[col:col+count]) + count - 1  # columns + spaces between
+                name_width = display_width(name)
+                if name_width > span_width:
+                    widths[col + count - 1] += name_width - span_width
+            col += count
+        # Print group header row
+        parts = []
+        col = 0
+        for name, count in groups:
+            span_width = sum(widths[col:col+count]) + count - 1
+            parts.append(_ljust(name or '', span_width))
+            col += count
+        print(" ".join(parts))
+
+    # Print column headers
+    print(" ".join(_ljust(h, w) for h, w in zip(headers, widths)))
+
+    # Print data rows
     for data_row in zip(*data):
         print(" ".join(_rjust(_fmt(n), width) for width, n in zip(widths, data_row)))
 
@@ -290,10 +289,7 @@ def do_forecast(args):
         print(f"{sys.argv[0]}: dates must be YYYY-MM-DD, YYYY-MM-DD..YYYY-MM-DD, 'today' or 'tomorrow'", file=sys.stderr)
         sys.exit(1)
 
-    short_models = shorten(args.models)
-    model_to_short = {m: s for m, s in zip(args.models, short_models)}
-    explanation = ", ".join(f"{s}={m}" for m, s in model_to_short.items())
-    print(f"Forecast for {location_name} ({explanation})")
+    print(f"Forecast for {location_name}")
 
     forecast = download_forecast(latitude, longitude, args.models)
     time_range = resolve_time_range(start_date, end_date, forecast.timezone)
@@ -303,8 +299,8 @@ def do_forecast(args):
         print(f"Timezone: {forecast.timezone}")
         print(f"Interval: [{time_range[0]}, {time_range[1]})")
 
-    headers, columns = extract_forecast_table(forecast.times, forecast.by_model, time_range, model_to_short)
-    pretty_print(headers, *columns)
+    headers, columns, groups = extract_forecast_table(forecast.times, forecast.by_model, time_range)
+    pretty_print(headers, *columns, groups=groups)
 
 def do_current(args):
     try:
