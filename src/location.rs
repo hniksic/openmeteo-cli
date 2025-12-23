@@ -1,4 +1,7 @@
+use std::sync::LazyLock;
+
 use anyhow::{bail, Context};
+use regex::Regex;
 use serde::Deserialize;
 
 #[derive(Debug, Clone)]
@@ -16,12 +19,14 @@ struct NominatimResult {
 }
 
 pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
+    static COORD_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$").unwrap()
+    });
+
     // Try parsing as coordinates first
-    let coord_regex =
-        regex::Regex::new(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$").unwrap();
-    if let Some(caps) = coord_regex.captures(s) {
-        let latitude: f64 = caps[1].parse().unwrap();
-        let longitude: f64 = caps[2].parse().unwrap();
+    if let Some(caps) = COORD_RE.captures(s) {
+        let latitude: f64 = caps[1].parse()?;
+        let longitude: f64 = caps[2].parse()?;
 
         if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
             bail!("Latitude must be between -90 and 90, longitude between -180 and 180");
