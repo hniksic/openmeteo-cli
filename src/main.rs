@@ -1,4 +1,4 @@
-mod display;
+mod table;
 mod location;
 mod openmeteo_fetch;
 
@@ -8,7 +8,7 @@ use chrono::{
 use chrono_tz::Tz;
 use clap::{Parser, Subcommand};
 
-use display::pretty_print;
+use table::pretty_print;
 use itertools::Itertools;
 use location::resolve_location;
 use openmeteo_fetch::{Current, Forecast, Weather};
