@@ -57,7 +57,7 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
     let response = client
         .get("https://nominatim.openstreetmap.org/search.php")
         .query(&[("q", s), ("format", "geojson")])
-        .header("User-Agent", "curl/8.9.1")
+        .header("User-Agent", "openmeteo-cli/0.0.1")
         .send()
         .context("Geocoding request failed")?;
 
