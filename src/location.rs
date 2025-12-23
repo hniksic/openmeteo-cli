@@ -14,14 +14,13 @@ pub struct Location {
 #[derive(Debug, Deserialize)]
 struct NominatimResult {
     display_name: String,
-    lat: String,
-    lon: String,
+    lat: f64,
+    lon: f64,
 }
 
 pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
-    static COORD_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$").unwrap()
-    });
+    static COORD_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$").unwrap());
 
     // Try parsing as coordinates first
     if let Some(caps) = COORD_RE.captures(s) {
@@ -60,12 +59,9 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
     }
 
     let loc = &locations[0];
-    let latitude: f64 = loc.lat.parse().context("Invalid latitude")?;
-    let longitude: f64 = loc.lon.parse().context("Invalid longitude")?;
-
     Ok(Location {
         display_name: loc.display_name.clone(),
-        latitude,
-        longitude,
+        latitude: loc.lat,
+        longitude: loc.lon,
     })
 }
