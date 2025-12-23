@@ -12,10 +12,24 @@ pub struct Location {
 }
 
 #[derive(Debug, Deserialize)]
-struct NominatimResult {
+struct GeoJsonResponse {
+    features: Vec<Feature>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Feature {
+    properties: Properties,
+    geometry: Geometry,
+}
+
+#[derive(Debug, Deserialize)]
+struct Properties {
     display_name: String,
-    lat: f64,
-    lon: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Geometry {
+    coordinates: [f64; 2], // [lon, lat]
 }
 
 pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
@@ -42,7 +56,7 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
     let client = reqwest::blocking::Client::new();
     let response = client
         .get("https://nominatim.openstreetmap.org/search.php")
-        .query(&[("q", s), ("format", "jsonv2")])
+        .query(&[("q", s), ("format", "geojson")])
         .header("User-Agent", "curl/8.9.1")
         .send()
         .context("Geocoding request failed")?;
@@ -51,17 +65,13 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
         bail!("Geocoding API error: {}", response.status());
     }
 
-    let locations: Vec<NominatimResult> =
-        response.json().context("Geocoding JSON parsing failed")?;
+    let data: GeoJsonResponse = response.json().context("Geocoding JSON parsing failed")?;
 
-    if locations.is_empty() {
-        bail!("unknown location {}", s);
-    }
-
-    let loc = &locations[0];
+    let feature = data.features.first().context("Unknown location")?;
+    let [lon, lat] = feature.geometry.coordinates;
     Ok(Location {
-        display_name: loc.display_name.clone(),
-        latitude: loc.lat,
-        longitude: loc.lon,
+        display_name: feature.properties.display_name.clone(),
+        latitude: lat,
+        longitude: lon,
     })
 }
