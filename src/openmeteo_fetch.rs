@@ -123,7 +123,7 @@ impl Forecast {
         };
 
         let by_model = models
-            .into_iter()
+            .iter()
             .map(|model| {
                 let temps = data
                     .hourly

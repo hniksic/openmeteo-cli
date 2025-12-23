@@ -2,7 +2,9 @@ mod display;
 mod location;
 mod openmeteo_fetch;
 
-use chrono::{Datelike, DateTime, Duration, FixedOffset, Local, NaiveDate, TimeZone, Timelike, Weekday};
+use chrono::{
+    DateTime, Datelike, Duration, FixedOffset, Local, NaiveDate, TimeZone, Timelike, Weekday,
+};
 use chrono_tz::Tz;
 use clap::{Parser, Subcommand};
 
@@ -11,10 +13,6 @@ use itertools::Itertools;
 use location::resolve_location;
 use openmeteo_fetch::{Current, Forecast, Weather};
 use unicode_width::UnicodeWidthStr;
-
-// ============================================================================
-// CLI Argument Parsing
-// ============================================================================
 
 #[derive(Parser)]
 #[command(name = "openmeteo")]
@@ -200,17 +198,19 @@ pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
         .chunk_by(|item| item.clone())
         .into_iter()
         .flat_map(|(key, group)| {
-            std::iter::once(key).chain(std::iter::repeat(String::new()).take(group.count() - 1))
+            std::iter::once(key).chain(std::iter::repeat_n(String::new(), group.count() - 1))
         })
         .collect()
 }
+
+type ForecastTable = (Vec<String>, Vec<Vec<String>>, Vec<(Option<String>, usize)>);
 
 fn extract_forecast_table(
     times: &[DateTime<FixedOffset>],
     by_model: &[(String, Vec<Weather>)],
     (start_time, end_time): (DateTime<FixedOffset>, DateTime<FixedOffset>),
-) -> (Vec<String>, Vec<Vec<String>>, Vec<(Option<String>, usize)>) {
-    let in_range = |dt: &DateTime<FixedOffset>| *dt >= start_time && *dt < end_time;
+) -> ForecastTable {
+    let in_range = |dt| dt >= start_time && dt < end_time;
 
     let mut headers = vec!["Date".to_string(), "Hour".to_string()];
     let mut columns: Vec<Vec<String>> = Vec::new();
@@ -219,7 +219,7 @@ fn extract_forecast_table(
     columns.push(dedup(
         times
             .iter()
-            .filter(|dt| in_range(dt))
+            .filter(|&&dt| in_range(dt))
             .map(|dt| dt.format("%Y-%m-%d").to_string()),
     ));
 
@@ -227,7 +227,7 @@ fn extract_forecast_table(
     columns.push(
         times
             .iter()
-            .filter(|dt| in_range(dt))
+            .filter(|&&dt| in_range(dt))
             .map(|dt| dt.format("%Hh").to_string())
             .collect(),
     );
@@ -240,15 +240,15 @@ fn extract_forecast_table(
         let mut precips = Vec::new();
         let mut codes = Vec::new();
 
-        for (time, weather) in times.iter().zip(data.iter()) {
+        for (&time, weather) in times.iter().zip(data) {
             if !in_range(time) {
                 continue;
             }
             temps.push(weather.temp);
             codes.push(weather.code);
             precips.push(match weather.precip {
-                Some(p) if p == 0.0 => String::new(),
-                Some(p) => format!("{}", p),
+                Some(0.0) => String::new(),
+                Some(p) => format!("{p}"),
                 None => "-".to_string(),
             });
         }
@@ -279,10 +279,6 @@ fn extract_forecast_table(
 
     (headers, columns, groups)
 }
-
-// ============================================================================
-// Command Handlers
-// ============================================================================
 
 fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyhow::Result<()> {
     let location = resolve_location(location)?;
@@ -332,8 +328,8 @@ fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
             None => "-".to_string(),
         }],
         vec![match current.weather.precip {
-            Some(p) if p == 0.0 => String::new(),
-            Some(p) => format!("{}", p),
+            Some(0.0) => String::new(),
+            Some(p) => format!("{p}"),
             None => "-".to_string(),
         }],
     ];
@@ -341,10 +337,6 @@ fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
     pretty_print(&headers, &columns, None);
     Ok(())
 }
-
-// ============================================================================
-// Main
-// ============================================================================
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
