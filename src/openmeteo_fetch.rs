@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Context};
-use chrono::{NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
 use chrono_tz::Tz;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ impl Coord {
 
 #[derive(Debug)]
 pub struct Forecast {
-    pub times: Vec<chrono::DateTime<Tz>>,
+    pub times: Vec<DateTime<FixedOffset>>,
     pub by_model: Vec<(String, Vec<Weather>)>,
     pub timezone: Tz,
     pub location: Coord,
@@ -95,14 +95,17 @@ impl Forecast {
 
         let mut data: Response = response.json().context("JSON parsing failed")?;
 
-        let times: Vec<chrono::DateTime<Tz>> = data
+        let times: Vec<DateTime<FixedOffset>> = data
             .hourly
             .time
             .iter()
             .map(|t| {
                 let naive = NaiveDateTime::parse_from_str(t, "%Y-%m-%dT%H:%M")
                     .expect("Failed to parse time");
-                data.timezone.from_local_datetime(&naive).unwrap()
+                data.timezone
+                    .from_local_datetime(&naive)
+                    .unwrap()
+                    .fixed_offset()
             })
             .collect();
 
@@ -155,7 +158,7 @@ impl Forecast {
 #[derive(Debug)]
 pub struct Current {
     pub weather: Weather,
-    pub time: chrono::DateTime<Tz>,
+    pub time: DateTime<FixedOffset>,
     pub location: Coord,
 }
 
@@ -206,7 +209,11 @@ impl Current {
 
         let naive = NaiveDateTime::parse_from_str(&data.current.time, "%Y-%m-%dT%H:%M")
             .context("Failed to parse time")?;
-        let time = data.timezone.from_local_datetime(&naive).unwrap();
+        let time = data
+            .timezone
+            .from_local_datetime(&naive)
+            .unwrap()
+            .fixed_offset();
 
         let location = Coord {
             latitude: data.latitude,

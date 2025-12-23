@@ -2,7 +2,7 @@ mod display;
 mod location;
 mod openmeteo_fetch;
 
-use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Timelike, Weekday};
+use chrono::{Datelike, DateTime, Duration, FixedOffset, Local, NaiveDate, TimeZone, Timelike, Weekday};
 use chrono_tz::Tz;
 use clap::{Parser, Subcommand};
 
@@ -54,10 +54,6 @@ enum Command {
         verbose: bool,
     },
 }
-
-// ============================================================================
-// Date Parsing
-// ============================================================================
 
 #[derive(Debug, Clone)]
 enum ParsedDate {
@@ -130,7 +126,7 @@ fn resolve_time_range(
     start_date: &ParsedDate,
     end_date: &ParsedDate,
     timezone: Tz,
-) -> (chrono::DateTime<Tz>, chrono::DateTime<Tz>) {
+) -> (DateTime<FixedOffset>, DateTime<FixedOffset>) {
     let now = Local::now().with_timezone(&timezone);
     let today = now.date_naive();
 
@@ -155,12 +151,13 @@ fn resolve_time_range(
     let start_time = timezone
         .from_local_datetime(&start_resolved.and_hms_opt(0, 0, 0).unwrap())
         .unwrap();
-    let start_time = std::cmp::max(start_time, now);
+    let start_time = std::cmp::max(start_time, now).fixed_offset();
 
     let end_resolved = end_resolved + Duration::days(1);
     let end_time = timezone
         .from_local_datetime(&end_resolved.and_hms_opt(0, 0, 0).unwrap())
-        .unwrap();
+        .unwrap()
+        .fixed_offset();
 
     (start_time, end_time)
 }
@@ -209,11 +206,11 @@ pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
 }
 
 fn extract_forecast_table(
-    times: &[chrono::DateTime<Tz>],
+    times: &[DateTime<FixedOffset>],
     by_model: &[(String, Vec<Weather>)],
-    (start_time, end_time): (chrono::DateTime<Tz>, chrono::DateTime<Tz>),
+    (start_time, end_time): (DateTime<FixedOffset>, DateTime<FixedOffset>),
 ) -> (Vec<String>, Vec<Vec<String>>, Vec<(Option<String>, usize)>) {
-    let in_range = |dt: &chrono::DateTime<Tz>| *dt >= start_time && *dt < end_time;
+    let in_range = |dt: &DateTime<FixedOffset>| *dt >= start_time && *dt < end_time;
 
     let mut headers = vec!["Date".to_string(), "Hour".to_string()];
     let mut columns: Vec<Vec<String>> = Vec::new();
