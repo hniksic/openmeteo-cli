@@ -35,16 +35,18 @@ consecutive equal dates omitted for readability), followed by hour, and then by
 weather symbol, temperature and precipitation for each forecast model:
 
 ```
-$ openmeteo forecast zagreb today
-Forecast for Grad Zagreb, Hrvatska (g=gfs_graphcast025, e=ecmwf_ifs025)
-                g  g    g    e  e    e
-Date       Hour    Temp Rain    Temp Rain
-2025-12-22  00h ⛅   4°      ☁    3°
-            01h ⛅   4°      ☁    3°
-            02h ⛅   4°      ☁    3°
+$ openmeteo forecast zagreb today   
+Forecast for Grad Zagreb, Hrvatska
+                gfs_graphcast025 ecmwf_ifs025 
+Date       Hour    Temp Rain        Temp Rain 
+2025-12-23  11h 🌤   5°          🌧   5°  0.1 
+            12h 🌤   5°          🌧   5°  0.1 
+            13h ⛅   5°          🌧   5°  0.1 
+            14h ⛅   5°          🌧   5°  0.3 
             ...
-            22h 🌤   4°      ☁    4°
-            23h 🌤   4°      ☁    4°
+            21h ⛅   4°          🌧   4°  0.1 
+            22h ⛅   4°          🌧   4°  0.1 
+            23h ☁    4°          ☁    4°      
 ```
 
 ## Current weather
