@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use display::pretty_print;
 use itertools::Itertools;
 use location::resolve_location;
-use openmeteo_fetch::{download_current, download_forecast, Weather};
+use openmeteo_fetch::{Current, Forecast, Weather};
 use unicode_width::UnicodeWidthStr;
 
 // ============================================================================
@@ -294,7 +294,7 @@ fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyh
     println!("Forecast for {}", location.display_name);
 
     let models: Vec<String> = models.split(',').map(|s| s.to_string()).collect();
-    let forecast = download_forecast(location.latitude, location.longitude, &models)?;
+    let forecast = Forecast::download(location.latitude, location.longitude, &models)?;
 
     let time_range = resolve_time_range(&start_date, &end_date, forecast.timezone);
 
@@ -315,7 +315,7 @@ fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
 
     println!("Current weather for {}", location.display_name);
 
-    let current = download_current(location.latitude, location.longitude)?;
+    let current = Current::download(location.latitude, location.longitude)?;
 
     if verbose {
         println!("Grid-cell location: {}", current.location.link());
