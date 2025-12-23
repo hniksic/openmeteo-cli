@@ -105,24 +105,24 @@ fn parse_date_range(s: &str) -> anyhow::Result<(ParsedDate, ParsedDate)> {
     }
 }
 
-fn resolve_date(dt: &ParsedDate, today: NaiveDate, weekday_start_at: NaiveDate) -> NaiveDate {
+fn resolve_date(dt: ParsedDate, today: NaiveDate, weekday_start_at: NaiveDate) -> NaiveDate {
     match dt {
         ParsedDate::Today => today,
         ParsedDate::Tomorrow => today + Duration::days(1),
         ParsedDate::Weekday(wanted) => {
             let mut date = weekday_start_at;
-            while date.weekday() != *wanted {
+            while date.weekday() != wanted {
                 date += Duration::days(1);
             }
             date
         }
-        ParsedDate::Absolute(d) => *d,
+        ParsedDate::Absolute(d) => d,
     }
 }
 
 fn resolve_time_range(
-    start_date: &ParsedDate,
-    end_date: &ParsedDate,
+    start_date: ParsedDate,
+    end_date: ParsedDate,
     timezone: Tz,
 ) -> (DateTime<FixedOffset>, DateTime<FixedOffset>) {
     let now = Local::now().with_timezone(&timezone);
@@ -140,11 +140,11 @@ fn resolve_time_range(
         };
         (start, end)
     } else {
-        (start_date.clone(), end_date.clone())
+        (start_date, end_date)
     };
 
-    let start_resolved = resolve_date(&start_date, today, today);
-    let end_resolved = resolve_date(&end_date, today, start_resolved);
+    let start_resolved = resolve_date(start_date, today, today);
+    let end_resolved = resolve_date(end_date, today, start_resolved);
 
     let start_time = timezone
         .from_local_datetime(&start_resolved.and_hms_opt(0, 0, 0).unwrap())
@@ -290,10 +290,10 @@ fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyh
 
     println!("Forecast for {}", location.display_name);
 
-    let models: Vec<String> = models.split(',').map(|s| s.to_string()).collect();
+    let models = models.split(',').collect_vec();
     let forecast = Forecast::download(location.latitude, location.longitude, &models)?;
 
-    let time_range = resolve_time_range(&start_date, &end_date, forecast.timezone);
+    let time_range = resolve_time_range(start_date, end_date, forecast.timezone);
 
     if verbose {
         println!("Grid-cell location: {}", forecast.location.link());

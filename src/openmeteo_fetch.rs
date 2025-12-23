@@ -37,7 +37,7 @@ pub struct Forecast {
 }
 
 impl Forecast {
-    pub fn download(latitude: f64, longitude: f64, models: &[String]) -> anyhow::Result<Self> {
+    pub fn download(latitude: f64, longitude: f64, models: &[&str]) -> anyhow::Result<Self> {
         #[derive(Debug, Deserialize)]
         struct Response {
             latitude: f64,
@@ -142,7 +142,7 @@ impl Forecast {
                     .map(|((temp, precip), code)| Weather { temp, precip, code })
                     .collect();
 
-                (model.clone(), forecast)
+                (model.to_string(), forecast)
             })
             .collect();
 
