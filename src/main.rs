@@ -1,6 +1,6 @@
-mod table;
 mod location;
 mod openmeteo_fetch;
+mod table;
 
 use chrono::{
     DateTime, Datelike, Duration, FixedOffset, Local, NaiveDate, TimeZone, Timelike, Weekday,
@@ -8,10 +8,10 @@ use chrono::{
 use chrono_tz::Tz;
 use clap::{Parser, Subcommand};
 
-use table::Table;
 use itertools::Itertools;
 use location::resolve_location;
 use openmeteo_fetch::{Current, Forecast, Weather};
+use table::Table;
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Parser)]
@@ -160,27 +160,35 @@ fn resolve_time_range(
     (start_time, end_time)
 }
 
-fn wmo_symbol(code: i32) -> &'static str {
+fn wmo_symbol(code: i32, is_night: bool) -> &'static str {
     match code {
-        0 => "\u{1F31E}",            // BLACK SUN WITH RAYS - Clear sky
-        1 => "\u{1F324}",            // WHITE SUN WITH SMALL CLOUD - Mainly clear
-        2 => "\u{26C5}",             // SUN BEHIND CLOUD - Partly cloudy
-        3 => "\u{2601}",             // CLOUD - Overcast
-        45 | 48 => "\u{1F32B}",      // FOG
-        51..=67 => "\u{1F327}",      // CLOUD WITH RAIN - Drizzle/Rain
-        71..=75 => "\u{2744}",       // SNOWFLAKE - Snow
-        77 | 85 | 86 => "\u{1F328}", // CLOUD WITH SNOW - Snow grains/showers
-        80..=82 => "\u{1F326}",      // WHITE SUN BEHIND CLOUD WITH RAIN - Rain showers
-        95..=99 => "\u{26C8}",       // THUNDER CLOUD AND RAIN - Thunderstorm
+        0 if is_night => "\u{1F319}",       // CRESCENT MOON - Clear sky (night)
+        0 => "\u{1F31E}",                   // BLACK SUN WITH RAYS - Clear sky
+        1 if is_night => "\u{1F319}",       // CRESCENT MOON - Mainly clear (night)
+        1 => "\u{1F324}",                   // WHITE SUN WITH SMALL CLOUD - Mainly clear
+        2 if is_night => "\u{2601}",        // CLOUD - Partly cloudy (night)
+        2 => "\u{26C5}",                    // SUN BEHIND CLOUD - Partly cloudy
+        3 => "\u{2601}",                    // CLOUD - Overcast
+        45 | 48 => "\u{1F32B}",             // FOG
+        51..=67 => "\u{1F327}",             // CLOUD WITH RAIN - Drizzle/Rain
+        71..=75 => "\u{2744}",              // SNOWFLAKE - Snow
+        77 | 85 | 86 => "\u{1F328}",        // CLOUD WITH SNOW - Snow grains/showers
+        80..=82 if is_night => "\u{1F327}", // CLOUD WITH RAIN - Rain showers (night)
+        80..=82 => "\u{1F326}",             // WHITE SUN BEHIND CLOUD WITH RAIN - Rain showers
+        95..=99 => "\u{26C8}",              // THUNDER CLOUD AND RAIN - Thunderstorm
         _ => "?",
     }
 }
 
-fn weather_symbol(code: Option<i32>) -> String {
+fn is_night(hour: u32) -> bool {
+    hour < 6 || hour >= 20
+}
+
+fn weather_symbol(code: Option<i32>, hour: u32) -> String {
     match code {
         None => "-".to_string(),
         Some(c) => {
-            let sym = wmo_symbol(c);
+            let sym = wmo_symbol(c, is_night(hour));
             if sym.width() == 1 {
                 format!("{} ", sym)
             } else {
@@ -233,6 +241,7 @@ fn build_forecast_table(
         let mut temps = Vec::new();
         let mut precips = Vec::new();
         let mut codes = Vec::new();
+        let mut code_hours = Vec::new();
 
         for (&time, weather) in times.iter().zip(data) {
             if !in_range(time) {
@@ -240,6 +249,7 @@ fn build_forecast_table(
             }
             temps.push(weather.temp);
             codes.push(weather.code);
+            code_hours.push(time.hour());
             precips.push(match weather.precip {
                 Some(0.0) => String::new(),
                 Some(p) => format!("{p}"),
@@ -249,7 +259,14 @@ fn build_forecast_table(
 
         table = table
             .group(model)
-            .column("", codes.iter().map(|c| weather_symbol(*c)).collect())
+            .column(
+                "",
+                codes
+                    .iter()
+                    .zip(&code_hours)
+                    .map(|(c, h)| weather_symbol(*c, *h))
+                    .collect(),
+            )
             .column(
                 "Temp",
                 temps
@@ -300,8 +317,14 @@ fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
     }
 
     Table::new()
-        .column("Time", vec![current.time.format("%Y-%m-%d %H:%M").to_string()])
-        .column("", vec![weather_symbol(current.weather.code)])
+        .column(
+            "Time",
+            vec![current.time.format("%Y-%m-%d %H:%M").to_string()],
+        )
+        .column(
+            "",
+            vec![weather_symbol(current.weather.code, current.time.hour())],
+        )
         .column(
             "Temp",
             vec![match current.weather.temp {
