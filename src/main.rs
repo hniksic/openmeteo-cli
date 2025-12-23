@@ -8,7 +8,7 @@ use chrono::{
 use chrono_tz::Tz;
 use clap::{Parser, Subcommand};
 
-use table::pretty_print;
+use table::Table;
 use itertools::Itertools;
 use location::resolve_location;
 use openmeteo_fetch::{Current, Forecast, Weather};
@@ -203,37 +203,31 @@ pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
-type ForecastTable = (Vec<String>, Vec<Vec<String>>, Vec<(Option<String>, usize)>);
-
-fn extract_forecast_table(
+fn build_forecast_table(
     times: &[DateTime<FixedOffset>],
     by_model: &[(String, Vec<Weather>)],
     (start_time, end_time): (DateTime<FixedOffset>, DateTime<FixedOffset>),
-) -> ForecastTable {
+) -> Table {
     let in_range = |dt| dt >= start_time && dt < end_time;
 
-    let mut headers = vec!["Date".to_string(), "Hour".to_string()];
-    let mut columns: Vec<Vec<String>> = Vec::new();
-
     // Date column (deduped)
-    columns.push(dedup(
+    let dates = dedup(
         times
             .iter()
             .filter(|&&dt| in_range(dt))
             .map(|dt| dt.format("%Y-%m-%d").to_string()),
-    ));
-
-    // Hour column
-    columns.push(
-        times
-            .iter()
-            .filter(|&&dt| in_range(dt))
-            .map(|dt| dt.format("%Hh").to_string())
-            .collect(),
     );
 
-    let mut groups: Vec<(Option<String>, usize)> = vec![(None, 2)];
-    let num_rows = columns[0].len();
+    // Hour column
+    let hours: Vec<String> = times
+        .iter()
+        .filter(|&&dt| in_range(dt))
+        .map(|dt| dt.format("%Hh").to_string())
+        .collect();
+
+    let num_rows = dates.len();
+
+    let mut table = Table::new().column("Date", dates).column("Hour", hours);
 
     for (model, data) in by_model {
         let mut temps = Vec::new();
@@ -253,31 +247,24 @@ fn extract_forecast_table(
             });
         }
 
-        headers.extend([
-            "".to_string(),
-            "Temp".to_string(),
-            "Precip".to_string(),
-            "".to_string(),
-        ]);
-
-        columns.push(codes.iter().map(|c| weather_symbol(*c)).collect());
-        columns.push(
-            temps
-                .iter()
-                .map(|t| match t {
-                    // as i32 to avoid -0.1 showing as -0°
-                    Some(temp) => format!("{}°", temp.round() as i32),
-                    None => "-".to_string(),
-                })
-                .collect(),
-        );
-        columns.push(precips);
-        columns.push(vec![String::new(); num_rows]);
-
-        groups.push((Some(model.clone()), 4));
+        table = table
+            .group(model)
+            .column("", codes.iter().map(|c| weather_symbol(*c)).collect())
+            .column(
+                "Temp",
+                temps
+                    .iter()
+                    .map(|t| match t {
+                        Some(temp) => format!("{}°", temp.round() as i32),
+                        None => "-".to_string(),
+                    })
+                    .collect(),
+            )
+            .column("Precip", precips)
+            .column("", vec![String::new(); num_rows]);
     }
 
-    (headers, columns, groups)
+    table
 }
 
 fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyhow::Result<()> {
@@ -297,9 +284,7 @@ fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyh
         println!("Interval: [{}, {})", time_range.0, time_range.1);
     }
 
-    let (headers, columns, groups) =
-        extract_forecast_table(&forecast.times, &forecast.by_model, time_range);
-    pretty_print(&headers, &columns, Some(&groups));
+    build_forecast_table(&forecast.times, &forecast.by_model, time_range).print();
     Ok(())
 }
 
@@ -314,27 +299,25 @@ fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
         println!("Grid-cell location: {}", current.location.link());
     }
 
-    let headers = vec![
-        "Time".to_string(),
-        "".to_string(),
-        "Temp".to_string(),
-        "Precip".to_string(),
-    ];
-    let columns = vec![
-        vec![current.time.format("%Y-%m-%d %H:%M").to_string()],
-        vec![weather_symbol(current.weather.code)],
-        vec![match current.weather.temp {
-            Some(t) => format!("{}°", t.round() as i32),
-            None => "-".to_string(),
-        }],
-        vec![match current.weather.precip {
-            Some(0.0) => String::new(),
-            Some(p) => format!("{p}"),
-            None => "-".to_string(),
-        }],
-    ];
-
-    pretty_print(&headers, &columns, None);
+    Table::new()
+        .column("Time", vec![current.time.format("%Y-%m-%d %H:%M").to_string()])
+        .column("", vec![weather_symbol(current.weather.code)])
+        .column(
+            "Temp",
+            vec![match current.weather.temp {
+                Some(t) => format!("{}°", t.round() as i32),
+                None => "-".to_string(),
+            }],
+        )
+        .column(
+            "Precip",
+            vec![match current.weather.precip {
+                Some(0.0) => String::new(),
+                Some(p) => format!("{p}"),
+                None => "-".to_string(),
+            }],
+        )
+        .print();
     Ok(())
 }
 
