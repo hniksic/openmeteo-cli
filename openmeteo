@@ -122,8 +122,7 @@ def extract_forecast_table(times, by_model, time_range):
             else:
                 precips.append(weather.precip)
         # Trailing empty column absorbs excess width when model name is wide,
-        # keeping Rain column tight (it's right-justified, so padding would go left)
-        headers.extend(["", "Temp", "Rain", ""])
+        headers.extend(["", "Temp", "Precip", ""])
         columns.append([weather_symbol(c) for c in codes])
         columns.append([f'{round(t)}°' if t is not None else '-' for t in temps])
         columns.append(precips)
@@ -316,7 +315,7 @@ def do_current(args):
     current = download_current(latitude, longitude)
     if args.verbose:
         print(f"Grid-cell location: {current.location.link()}")
-    pretty_print(["Time", "", "Temp", "Rain"],
+    pretty_print(["Time", "", "Temp", "Precip"],
                  [current.time.strftime("%Y-%m-%d %H:%M")],
                  [weather_symbol(current.weather.code)],
                  [f'{round(current.weather.temp)}°'],
