@@ -46,9 +46,9 @@ fn parse_coordinates(s: &str) -> Option<Location> {
             r#"(?x)
             ^
             \s*
-            (-?\d+(?:\.\d+)?)   # latitude: decimal number
+            ([+-]?\d+(?:\.\d+)?)   # latitude: decimal number
             \s*,\s*
-            (-?\d+(?:\.\d+)?)   # longitude: decimal number
+            ([+-]?\d+(?:\.\d+)?)   # longitude: decimal number
             \s*
             $
         "#,
@@ -125,6 +125,13 @@ mod tests {
         let loc = parse_coordinates("-33.8688,151.2093").unwrap();
         assert_eq!(loc.latitude, -33.8688);
         assert_eq!(loc.longitude, 151.2093);
+    }
+
+    #[test]
+    fn parse_coordinates_positive_prefix() {
+        let loc = parse_coordinates("+45.0,+15.0").unwrap();
+        assert_eq!(loc.latitude, 45.0);
+        assert_eq!(loc.longitude, 15.0);
     }
 
     #[test]
