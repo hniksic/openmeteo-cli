@@ -36,12 +36,11 @@ struct Geometry {
     coordinates: [f64; 2], // [lon, lat]
 }
 
-/// Resolve a location string to geographic coordinates.
+/// Parse a coordinate string in "latitude,longitude" format.
 ///
-/// Accepts either a coordinate pair (e.g., "45.8150,15.9819") or a place name
-/// (e.g., "London"). Coordinates are validated to be within valid ranges.
-/// Place names are resolved using the Nominatim geocoding API.
-pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
+/// Returns `None` if the string doesn't match the expected format or if
+/// coordinates are out of valid ranges (latitude: -90 to 90, longitude: -180 to 180).
+fn parse_coordinates(s: &str) -> Option<Location> {
     static COORD_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r#"(?x)
@@ -57,21 +56,29 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
         .unwrap()
     });
 
-    // Try parsing as coordinates first
-    if let Some(caps) = COORD_RE.captures(s) {
-        const NUM_ERR: &str = "Latitude must be between -90 and 90, longitude between -180 and 180";
-        let latitude: f64 = caps[1].parse().context(NUM_ERR)?;
-        let longitude: f64 = caps[2].parse().context(NUM_ERR)?;
+    let caps = COORD_RE.captures(s)?;
+    let latitude: f64 = caps[1].parse().ok()?;
+    let longitude: f64 = caps[2].parse().ok()?;
 
-        if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
-            bail!(NUM_ERR);
-        }
+    if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
+        return None;
+    }
 
-        return Ok(Location {
-            display_name: s.to_string(),
-            latitude,
-            longitude,
-        });
+    Some(Location {
+        display_name: s.to_string(),
+        latitude,
+        longitude,
+    })
+}
+
+/// Resolve a location string to geographic coordinates.
+///
+/// Accepts either a coordinate pair (e.g., "45.8150,15.9819") or a place name
+/// (e.g., "London"). Coordinates are validated to be within valid ranges.
+/// Place names are resolved using the Nominatim geocoding API.
+pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
+    if let Some(location) = parse_coordinates(s) {
+        return Ok(location);
     }
 
     // Use Nominatim for geocoding
@@ -99,4 +106,64 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
         latitude: lat,
         longitude: lon,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_coordinates_basic() {
+        let loc = parse_coordinates("45.8150,15.9819").unwrap();
+        assert_eq!(loc.latitude, 45.8150);
+        assert_eq!(loc.longitude, 15.9819);
+        assert_eq!(loc.display_name, "45.8150,15.9819");
+    }
+
+    #[test]
+    fn parse_coordinates_negative() {
+        let loc = parse_coordinates("-33.8688,151.2093").unwrap();
+        assert_eq!(loc.latitude, -33.8688);
+        assert_eq!(loc.longitude, 151.2093);
+    }
+
+    #[test]
+    fn parse_coordinates_integers() {
+        let loc = parse_coordinates("45,15").unwrap();
+        assert_eq!(loc.latitude, 45.0);
+        assert_eq!(loc.longitude, 15.0);
+    }
+
+    #[test]
+    fn parse_coordinates_with_whitespace() {
+        let loc = parse_coordinates("  45.0 , 15.0  ").unwrap();
+        assert_eq!(loc.latitude, 45.0);
+        assert_eq!(loc.longitude, 15.0);
+    }
+
+    #[test]
+    fn parse_coordinates_boundary_values() {
+        assert!(parse_coordinates("90,180").is_some());
+        assert!(parse_coordinates("-90,-180").is_some());
+    }
+
+    #[test]
+    fn parse_coordinates_latitude_out_of_range() {
+        assert!(parse_coordinates("91,0").is_none());
+        assert!(parse_coordinates("-91,0").is_none());
+    }
+
+    #[test]
+    fn parse_coordinates_longitude_out_of_range() {
+        assert!(parse_coordinates("0,181").is_none());
+        assert!(parse_coordinates("0,-181").is_none());
+    }
+
+    #[test]
+    fn parse_coordinates_not_coordinates() {
+        assert!(parse_coordinates("London").is_none());
+        assert!(parse_coordinates("").is_none());
+        assert!(parse_coordinates("45").is_none());
+        assert!(parse_coordinates("45,15,20").is_none());
+    }
 }
