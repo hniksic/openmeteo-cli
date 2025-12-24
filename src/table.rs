@@ -116,7 +116,7 @@ impl Table {
                 parts.push(ljust(name.unwrap_or(""), span_width));
                 col += count;
             }
-            println!("{}", parts.join(" "));
+            println!("{}", parts.join(" ").trim_ascii_end());
         }
 
         // Print column headers (left-justified)
@@ -126,7 +126,7 @@ impl Table {
             .zip(widths.iter())
             .map(|(col, w)| ljust(&col.header, *w))
             .collect();
-        println!("{}", header_line.join(" "));
+        println!("{}", header_line.join(" ").trim_ascii_end());
 
         // Print data rows (right-justified for numeric alignment)
         let num_rows = self.columns[0].data.len();
@@ -140,7 +140,7 @@ impl Table {
                     rjust(val, *w)
                 })
                 .collect();
-            println!("{}", row.join(" "));
+            println!("{}", row.join(" ").trim_ascii_end());
         }
     }
 }
