@@ -71,32 +71,71 @@ Here is the current list of known models, taken from [the
 documentation](https://open-meteo.com/en/docs). Note that not all of those work on all
 locations, and many of them don't support full 16 days.
 
-**Global models:**
-* `best_match` - automatically selects best model for location
-* `ecmwf_ifs025` / `ecmwf_ifs` - ECMWF IFS
-* `gfs_seamless` / `gfs_global` - NCEP GFS
-* `gfs_graphcast025` - GFS GraphCast
-* `icon_seamless` / `icon_global` - DWD ICON
-* `gem_seamless` / `gem_global` - GEM Global
-* `jma_seamless` / `jma_gsm` - JMA GSM
-* `kma_seamless` / `kma_gdps` - KMA GDPS
-* `cma_grapes_global` - CMA GRAPES Global
-* `bom_access_global` - BOM ACCESS Global
+<details>
+<summary><b>Global models</b></summary>
 
-**European regional models:**
-* `icon_eu` / `icon_d2` - DWD ICON EU / D2
-* `meteofrance_seamless` / `meteofrance_arpege_world` / `meteofrance_arpege_europe` / `meteofrance_arome_france` / `meteofrance_arome_france_hd` - Météo-France
-* `knmi_seamless` / `knmi_harmonie_arome_europe` / `knmi_harmonie_arome_netherlands` - KNMI Harmonie Arome
-* `dmi_seamless` / `dmi_harmonie_arome_europe` - DMI Harmonie Arome
-* `ukmo_seamless` / `ukmo_global_deterministic_10km` / `ukmo_uk_deterministic_2km` - UK Met Office
-* `metno_seamless` / `metno_nordic` - MET Norway Nordic
-* `meteoswiss_icon_seamless` / `meteoswiss_icon_ch1` / `meteoswiss_icon_ch2` - MeteoSwiss ICON
-* `italia_meteo_arpae_icon_2i` - ItaliaMeteo ARPAE ICON 2I
+| Model | Description |
+|-------|-------------|
+| `best_match` | Automatically selects best model for location |
+| `ecmwf_ifs025` | ECMWF IFS 0.25° |
+| `ecmwf_ifs` | ECMWF IFS |
+| `gfs_seamless` | NCEP GFS Seamless |
+| `gfs_global` | NCEP GFS Global |
+| `gfs_graphcast025` | GFS GraphCast |
+| `icon_seamless` | DWD ICON Seamless |
+| `icon_global` | DWD ICON Global |
+| `gem_seamless` | GEM Seamless |
+| `gem_global` | GEM Global |
+| `jma_seamless` | JMA Seamless |
+| `jma_gsm` | JMA GSM |
+| `kma_seamless` | KMA Seamless |
+| `kma_gdps` | KMA GDPS |
+| `cma_grapes_global` | CMA GRAPES Global |
+| `bom_access_global` | BOM ACCESS Global |
 
-**Other regional models:**
-* `gem_regional` / `gem_hrdps_continental` / `gem_hrdps_west` - GEM HRDPS
-* `jma_msm` - JMA MSM
-* `kma_ldps` - KMA LDPS
-* `gfs_hrrr` - NCEP HRRR U.S. Conus
-* `ncep_nbm_conus` - NCEP NBM U.S. Conus
-* `ncep_nam_conus` - NCEP NAM U.S. Conus
+</details>
+
+<details>
+<summary><b>European regional models</b></summary>
+
+| Model | Description |
+|-------|-------------|
+| `icon_eu` | DWD ICON EU |
+| `icon_d2` | DWD ICON D2 |
+| `meteofrance_seamless` | Météo-France Seamless |
+| `meteofrance_arpege_world` | Météo-France ARPEGE World |
+| `meteofrance_arpege_europe` | Météo-France ARPEGE Europe |
+| `meteofrance_arome_france` | Météo-France AROME France |
+| `meteofrance_arome_france_hd` | Météo-France AROME France HD |
+| `knmi_seamless` | KNMI Seamless |
+| `knmi_harmonie_arome_europe` | KNMI Harmonie Arome Europe |
+| `knmi_harmonie_arome_netherlands` | KNMI Harmonie Arome Netherlands |
+| `dmi_seamless` | DMI Seamless |
+| `dmi_harmonie_arome_europe` | DMI Harmonie Arome Europe |
+| `ukmo_seamless` | UK Met Office Seamless |
+| `ukmo_global_deterministic_10km` | UK Met Office Global 10km |
+| `ukmo_uk_deterministic_2km` | UK Met Office UK 2km |
+| `metno_seamless` | MET Norway Seamless |
+| `metno_nordic` | MET Norway Nordic |
+| `meteoswiss_icon_seamless` | MeteoSwiss ICON Seamless |
+| `meteoswiss_icon_ch1` | MeteoSwiss ICON CH1 |
+| `meteoswiss_icon_ch2` | MeteoSwiss ICON CH2 |
+| `italia_meteo_arpae_icon_2i` | ItaliaMeteo ARPAE ICON 2I |
+
+</details>
+
+<details>
+<summary><b>Other regional models</b></summary>
+
+| Model | Description |
+|-------|-------------|
+| `gem_regional` | GEM Regional |
+| `gem_hrdps_continental` | GEM HRDPS Continental |
+| `gem_hrdps_west` | GEM HRDPS West |
+| `jma_msm` | JMA MSM |
+| `kma_ldps` | KMA LDPS |
+| `gfs_hrrr` | NCEP HRRR U.S. Conus |
+| `ncep_nbm_conus` | NCEP NBM U.S. Conus |
+| `ncep_nam_conus` | NCEP NAM U.S. Conus |
+
+</details>
