@@ -112,8 +112,7 @@ impl Table {
             let mut parts = Vec::new();
             col = 0;
             for &(name, count) in &groups {
-                let span_width: usize =
-                    widths[col..col + count].iter().sum::<usize>() + count - 1;
+                let span_width: usize = widths[col..col + count].iter().sum::<usize>() + count - 1;
                 parts.push(ljust(name.unwrap_or(""), span_width));
                 col += count;
             }
