@@ -268,7 +268,9 @@ async fn main() -> anyhow::Result<()> {
 }
 
 mod time {
-    use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveTime, Weekday};
+    use chrono::{
+        DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveTime, TimeZone, Weekday,
+    };
     use chrono_tz::Tz;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
@@ -366,38 +368,29 @@ mod time {
     /// Output is a half-open interval `[start, end)` suitable for filtering hourly data.
     /// The start time is clamped to `relative_to` to avoid showing past hours.
     pub fn resolve_time_range(
-        (mut start_date, mut end_date): (RequestedDate, RequestedDate),
+        (start_date, mut end_date): (RequestedDate, RequestedDate),
         timezone: Tz,
-        relative_to: DateTime<FixedOffset>,
+        now: DateTime<FixedOffset>,
     ) -> (DateTime<FixedOffset>, DateTime<FixedOffset>) {
-        use chrono::TimeZone;
+        let today = now.date_naive();
 
-        let original_date = relative_to.date_naive();
-
-        // Open-Meteo provides forecasts at hour starts, so after 23:00 there's no more data
-        // for "today". Since start is clamped to `relative_to`, shift to "tomorrow" to avoid
-        // an empty forecast. We use 22:55 as the cutoff to account for network latency.
+        // Open-Meteo provides forecasts at hour starts, so after 23:00 there's no more
+        // data for "today". Since start is clamped to `now`, shift end to "tomorrow" to
+        // avoid an empty forecast. We use 22:55 as the cutoff to account for network
+        // latency.
         const CUTOFF_TIME: NaiveTime = NaiveTime::from_hms_opt(22, 55, 0).unwrap();
-
-        if relative_to.time() > CUTOFF_TIME {
-            if start_date == RequestedDate::Today {
-                start_date = RequestedDate::Tomorrow;
-            }
-            if end_date == RequestedDate::Today {
-                end_date = RequestedDate::Tomorrow;
-            }
+        if now.time() > CUTOFF_TIME && end_date == RequestedDate::Today {
+            end_date = RequestedDate::Tomorrow;
         }
 
-        // We've updated start and end date, but still pass the original relative_to to
-        // resolve_date(), so that "+2" or "thursday" refer to the correct date.
-        let start_resolved = resolve_date(start_date, original_date, original_date);
-        let end_resolved = resolve_date(end_date, original_date, start_resolved);
+        let start_resolved = resolve_date(start_date, today, today);
+        let end_resolved = resolve_date(end_date, today, start_resolved);
 
         let start_time = timezone
             .from_local_datetime(&start_resolved.and_time(NaiveTime::MIN))
             .unwrap()
             .fixed_offset();
-        let start_time = std::cmp::max(start_time, relative_to);
+        let start_time = std::cmp::max(start_time, now);
 
         let end_resolved = end_resolved + Duration::days(1);
         let end_time = timezone
@@ -581,15 +574,15 @@ mod time {
 
         #[test]
         fn resolve_time_range_today_after_cutoff() {
-            let relative_to = make_time(23, 0); // after 22:55
-            let (start, end) = test_resolve("today", relative_to);
-            // "today" should shift to tomorrow due to cutoff
+            let now = make_time(23, 0); // after 22:55
+            let (start, end) = test_resolve("today", now);
+            // Start is clamped to now (23:00 today)
             assert_eq!(
                 start.date_naive(),
-                NaiveDate::from_ymd_opt(2025, 1, 16).unwrap()
+                NaiveDate::from_ymd_opt(2025, 1, 15).unwrap()
             );
-            assert_eq!(start.hour(), 0);
-            // End should be midnight of the day after tomorrow
+            assert_eq!(start.hour(), 23);
+            // End shifts to tomorrow, so end time is midnight day-after-tomorrow
             assert_eq!(
                 end.date_naive(),
                 NaiveDate::from_ymd_opt(2025, 1, 17).unwrap()
@@ -598,18 +591,26 @@ mod time {
 
         #[test]
         fn resolve_time_range_at_cutoff_boundary() {
-            // Exactly at 22:55 should NOT trigger the shift (we use >)
-            let (start, _) = test_resolve("today", make_time(22, 55));
+            // Exactly at 22:55 should NOT trigger the end shift (we use >)
+            let (start, end) = test_resolve("today", make_time(22, 55));
             assert_eq!(
                 start.date_naive(),
                 NaiveDate::from_ymd_opt(2025, 1, 15).unwrap()
             );
+            assert_eq!(
+                end.date_naive(),
+                NaiveDate::from_ymd_opt(2025, 1, 16).unwrap()
+            );
 
-            // One minute later should trigger the shift
-            let (start, _) = test_resolve("today", make_time(22, 56));
+            // One minute later should trigger the end shift
+            let (start, end) = test_resolve("today", make_time(22, 56));
             assert_eq!(
                 start.date_naive(),
-                NaiveDate::from_ymd_opt(2025, 1, 16).unwrap()
+                NaiveDate::from_ymd_opt(2025, 1, 15).unwrap()
+            );
+            assert_eq!(
+                end.date_naive(),
+                NaiveDate::from_ymd_opt(2025, 1, 17).unwrap()
             );
         }
 
