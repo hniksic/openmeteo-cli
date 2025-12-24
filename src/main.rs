@@ -104,6 +104,23 @@ pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
+fn format_precip(precip: Option<f64>) -> String {
+    match precip {
+        Some(0.0) => String::new(),
+        Some(p) if p < 5. => format!("{p:.1}mm"),
+        Some(p) => format!("{p:.0}mm"),
+        None => "-".to_string(),
+    }
+}
+
+fn format_temp(temp: Option<f64>) -> String {
+    match temp {
+        // as i32 so -0.1 doesn't show up as -0
+        Some(t) => format!("{}°", t.round() as i32),
+        None => "-".to_string(),
+    }
+}
+
 /// Build a table displaying hourly forecast data for multiple models.
 ///
 /// Filters the forecast data to the requested time range, then constructs a table with Date and
@@ -138,21 +155,14 @@ fn build_forecast_table(
         let mut temps = Vec::new();
         let mut precips = Vec::new();
         let mut codes = Vec::new();
-        let mut code_hours = Vec::new();
 
         for (&time, weather) in time_points.iter().zip(weather_points) {
             if !in_range(time) {
                 continue;
             }
             temps.push(weather.temp);
-            codes.push(weather.code);
-            code_hours.push(time.hour());
-            precips.push(match weather.precip {
-                Some(0.0) => String::new(),
-                Some(p) if p < 5. => format!("{p:.1}mm"),
-                Some(p) => format!("{p:.0}mm"),
-                None => "-".to_string(),
-            });
+            codes.push((weather.code, time.hour()));
+            precips.push(format_precip(weather.precip));
         }
 
         table = table
@@ -160,21 +170,11 @@ fn build_forecast_table(
             .column(
                 "",
                 codes
-                    .iter()
-                    .zip(&code_hours)
-                    .map(|(c, h)| weather_symbol(*c, *h))
+                    .into_iter()
+                    .map(|(c, h)| weather_symbol(c, h))
                     .collect(),
             )
-            .column(
-                "Temp",
-                temps
-                    .iter()
-                    .map(|t| match t {
-                        Some(temp) => format!("{}°", temp.round() as i32),
-                        None => "-".to_string(),
-                    })
-                    .collect(),
-            )
+            .column("Temp", temps.into_iter().map(format_temp).collect())
             .column("Precip", precips)
             .column("", vec![String::new(); num_rows]);
     }
@@ -234,21 +234,8 @@ fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
             "",
             vec![weather_symbol(current.weather.code, current.time.hour())],
         )
-        .column(
-            "Temp",
-            vec![match current.weather.temp {
-                Some(t) => format!("{}°", t.round() as i32),
-                None => "-".to_string(),
-            }],
-        )
-        .column(
-            "Precip",
-            vec![match current.weather.precip {
-                Some(0.0) => String::new(),
-                Some(p) => format!("{p}"),
-                None => "-".to_string(),
-            }],
-        )
+        .column("Temp", vec![format_temp(current.weather.temp)])
+        .column("Precip", vec![format_precip(current.weather.precip)])
         .print();
     Ok(())
 }
@@ -334,7 +321,7 @@ mod time {
         match dt {
             RequestedDate::Today => relative_to,
             RequestedDate::Tomorrow => relative_to + Duration::days(1),
-            RequestedDate::RelativeDays(n) => relative_to + Duration::days(n as i64),
+            RequestedDate::RelativeDays(n) => relative_to + Duration::days(n.into()),
             RequestedDate::Weekday(wanted) => {
                 let mut date = weekday_start_at;
                 while date.weekday() != wanted {
@@ -380,14 +367,14 @@ mod time {
         let end_resolved = resolve_date(end_date, original_date, start_resolved);
 
         let start_time = timezone
-            .from_local_datetime(&start_resolved.and_hms_opt(0, 0, 0).unwrap())
+            .from_local_datetime(&start_resolved.and_time(NaiveTime::MIN))
             .unwrap()
             .fixed_offset();
         let start_time = std::cmp::max(start_time, relative_to);
 
         let end_resolved = end_resolved + Duration::days(1);
         let end_time = timezone
-            .from_local_datetime(&end_resolved.and_hms_opt(0, 0, 0).unwrap())
+            .from_local_datetime(&end_resolved.and_time(NaiveTime::MIN))
             .unwrap()
             .fixed_offset();
 
