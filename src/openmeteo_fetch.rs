@@ -5,6 +5,9 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+/// Maximum forecast days supported by Open-Meteo.
+pub const MAX_FORECAST_DAYS: u8 = 16;
+
 /// Return severity score for WMO weather code. Higher values indicate more significant weather
 /// that should take precedence when aggregating multiple hours.
 fn wmo_severity(code: i32) -> i32 {
@@ -99,7 +102,7 @@ impl Forecast {
                 longitude,
                 hourly: "temperature_2m,precipitation,weather_code",
                 models: &models_str,
-                forecast_days: 16,
+                forecast_days: MAX_FORECAST_DAYS,
                 timezone: "auto",
             })
             .send()

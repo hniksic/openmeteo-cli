@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 
 use itertools::Itertools;
 use location::resolve_location;
-use openmeteo_fetch::{Current, Forecast, WeatherPoint};
+use openmeteo_fetch::{Current, Forecast, WeatherPoint, MAX_FORECAST_DAYS};
 use table::Table;
 use time::{parse_date_range, resolve_time_range};
 use unicode_width::UnicodeWidthStr;
@@ -315,14 +315,28 @@ mod time {
         }
     }
 
-    pub fn parse_date_range(s: &str) -> anyhow::Result<(RequestedDate, RequestedDate)> {
-        if let Some(pos) = s.find("..") {
-            let a = parse_date(&s[..pos])?;
-            let b = parse_date(&s[pos + 2..])?;
-            Ok((a, b))
+    /// Parse a date string, or return `default` if empty.
+    fn parse_date_or(s: &str, default: RequestedDate) -> anyhow::Result<RequestedDate> {
+        if s.is_empty() {
+            Ok(default)
         } else {
-            let d = parse_date(s)?;
-            Ok((d, d))
+            parse_date(s)
+        }
+    }
+
+    pub fn parse_date_range(s: &str) -> anyhow::Result<(RequestedDate, RequestedDate)> {
+        match s.split_once("..") {
+            Some(("", "")) => anyhow::bail!("empty range '..' not allowed"),
+            Some((left, right)) => {
+                let a = parse_date_or(left, RequestedDate::Today)?;
+                let b =
+                    parse_date_or(right, RequestedDate::RelativeDays(super::MAX_FORECAST_DAYS))?;
+                Ok((a, b))
+            }
+            None => {
+                let d = parse_date(s)?;
+                Ok((d, d))
+            }
         }
     }
 
@@ -519,11 +533,25 @@ mod time {
         }
 
         #[test]
+        fn parse_date_range_open_ended() {
+            // ..fri means today..fri
+            let (start, end) = parse_date_range("..fri").unwrap();
+            assert_eq!(start, RequestedDate::Today);
+            assert_eq!(end, RequestedDate::Weekday(Weekday::Fri));
+
+            // mon.. means mon..+16
+            let (start, end) = parse_date_range("mon..").unwrap();
+            assert_eq!(start, RequestedDate::Weekday(Weekday::Mon));
+            assert_eq!(end, RequestedDate::RelativeDays(crate::MAX_FORECAST_DAYS));
+
+            // just .. is forbidden
+            assert!(parse_date_range("..").is_err());
+        }
+
+        #[test]
         fn parse_date_range_invalid() {
             assert!(parse_date_range("invalid..today").is_err());
             assert!(parse_date_range("today..invalid").is_err());
-            assert!(parse_date_range("..today").is_err());
-            assert!(parse_date_range("today..").is_err());
         }
 
         // --- resolve_time_range tests ---
