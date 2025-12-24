@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
-pub struct Weather {
+pub struct WeatherPoint {
     pub temp: Option<f64>,
     pub precip: Option<f64>,
     pub code: Option<i32>,
@@ -31,7 +31,7 @@ impl Coord {
 #[derive(Debug)]
 pub struct Forecast {
     pub times: Vec<DateTime<FixedOffset>>,
-    pub by_model: Vec<(String, Vec<Weather>)>,
+    pub by_model: Vec<(String, Vec<WeatherPoint>)>,
     pub timezone: Tz,
     pub location: Coord,
 }
@@ -135,11 +135,11 @@ impl Forecast {
                     .hourly
                     .take_field_array::<i32>(&propname("weather_code", model));
 
-                let forecast: Vec<Weather> = temps
+                let forecast: Vec<WeatherPoint> = temps
                     .into_iter()
                     .zip(precips)
                     .zip(codes)
-                    .map(|((temp, precip), code)| Weather { temp, precip, code })
+                    .map(|((temp, precip), code)| WeatherPoint { temp, precip, code })
                     .collect();
 
                 (model.to_string(), forecast)
@@ -157,7 +157,7 @@ impl Forecast {
 
 #[derive(Debug)]
 pub struct Current {
-    pub weather: Weather,
+    pub weather: WeatherPoint,
     pub time: DateTime<FixedOffset>,
     pub location: Coord,
 }
@@ -220,7 +220,7 @@ impl Current {
             longitude: data.longitude,
         };
 
-        let weather = Weather {
+        let weather = WeatherPoint {
             temp: data.current.temperature_2m,
             precip: data.current.precipitation,
             code: data.current.weather_code,

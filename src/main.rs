@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 
 use itertools::Itertools;
 use location::resolve_location;
-use openmeteo_fetch::{Current, Forecast, Weather};
+use openmeteo_fetch::{Current, Forecast, WeatherPoint};
 use table::Table;
 use time::{parse_date_range, resolve_time_range};
 use unicode_width::UnicodeWidthStr;
@@ -110,38 +110,37 @@ pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
 /// Hour columns on the left, followed by weather symbol, temperature, and precipitation columns
 /// for each model. Dates are deduped so only the first row of each day shows the date.
 fn build_forecast_table(
-    times: &[DateTime<FixedOffset>],
-    by_model: &[(String, Vec<Weather>)],
+    time_points: &[DateTime<FixedOffset>],
+    by_model: &[(String, Vec<WeatherPoint>)],
     (start_time, end_time): (DateTime<FixedOffset>, DateTime<FixedOffset>),
 ) -> Table {
     let in_range = |dt| dt >= start_time && dt < end_time;
 
-    // Date column (deduped)
-    let dates = dedup(
-        times
-            .iter()
-            .filter(|&&dt| in_range(dt))
-            .map(|dt| dt.format("%Y-%m-%d").to_string()),
-    );
-
-    // Hour column
-    let hours: Vec<String> = times
+    let times_in_range = time_points
         .iter()
         .filter(|&&dt| in_range(dt))
+        .copied()
+        .collect_vec();
+    let dates = dedup(
+        times_in_range
+            .iter()
+            .map(|dt| dt.format("%Y-%m-%d").to_string()),
+    );
+    let hours: Vec<String> = times_in_range
+        .iter()
         .map(|dt| dt.format("%Hh").to_string())
         .collect();
-
-    let num_rows = dates.len();
+    let num_rows = time_points.len();
 
     let mut table = Table::new().column("Date", dates).column("Hour", hours);
 
-    for (model, data) in by_model {
+    for (model, weather_points) in by_model {
         let mut temps = Vec::new();
         let mut precips = Vec::new();
         let mut codes = Vec::new();
         let mut code_hours = Vec::new();
 
-        for (&time, weather) in times.iter().zip(data) {
+        for (&time, weather) in time_points.iter().zip(weather_points) {
             if !in_range(time) {
                 continue;
             }
@@ -150,7 +149,8 @@ fn build_forecast_table(
             code_hours.push(time.hour());
             precips.push(match weather.precip {
                 Some(0.0) => String::new(),
-                Some(p) => format!("{p}"),
+                Some(p) if p < 5. => format!("{p:.1}mm"),
+                Some(p) => format!("{p:.0}mm"),
                 None => "-".to_string(),
             });
         }
