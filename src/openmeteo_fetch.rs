@@ -1,10 +1,27 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Context};
-use chrono::{DateTime, FixedOffset, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use chrono_tz::Tz;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+
+/// Return severity score for WMO weather code. Higher values indicate more significant weather
+/// that should take precedence when aggregating multiple hours.
+fn wmo_severity(code: i32) -> i32 {
+    match code {
+        95..=99 => 100, // Thunderstorm
+        80..=86 => 80,  // Rain/snow showers
+        71..=77 => 70,  // Snow
+        51..=67 => 60,  // Drizzle/Rain
+        45 | 48 => 50,  // Fog
+        3 => 30,        // Overcast
+        2 => 20,        // Partly cloudy
+        1 => 10,        // Mainly clear
+        0 => 0,         // Clear
+        _ => 0,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct WeatherPoint {
@@ -152,6 +169,93 @@ impl Forecast {
             timezone: data.timezone,
             location,
         })
+    }
+
+    /// Compress forecast data: keep hourly for today, use 3-hour intervals for other days.
+    ///
+    /// For compressed intervals, temperature is averaged, precipitation is summed, and the most
+    /// significant WMO weather code is selected (e.g., rain takes precedence over sun).
+    pub fn compress(&mut self, today: NaiveDate) {
+        let mut new_times = Vec::new();
+        let mut new_by_model: Vec<(String, Vec<WeatherPoint>)> = self
+            .by_model
+            .iter()
+            .map(|(name, _)| (name.clone(), Vec::new()))
+            .collect();
+
+        let mut i = 0;
+        while i < self.times.len() {
+            let time = self.times[i];
+            let date = time.date_naive();
+
+            if date == today {
+                // Keep hourly for today
+                new_times.push(time);
+                for (model_idx, (_, weather)) in self.by_model.iter().enumerate() {
+                    new_by_model[model_idx].1.push(weather[i].clone());
+                }
+                i += 1;
+            } else {
+                // Compress to 3-hour intervals for other days
+                let bucket_start_hour = time.hour() / 3 * 3;
+                let bucket_end_hour = bucket_start_hour + 3;
+
+                // Find all hours in this 3-hour bucket
+                let mut bucket_indices = vec![i];
+                let mut j = i + 1;
+                while j < self.times.len() {
+                    let next_time = self.times[j];
+                    if next_time.date_naive() == date && next_time.hour() < bucket_end_hour {
+                        bucket_indices.push(j);
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Use the first time in the bucket as the representative time
+                new_times.push(time);
+
+                // Aggregate weather for each model
+                for (model_idx, (_, weather)) in self.by_model.iter().enumerate() {
+                    let points: Vec<&WeatherPoint> =
+                        bucket_indices.iter().map(|&idx| &weather[idx]).collect();
+
+                    // Average temperature
+                    let temps: Vec<f64> = points.iter().filter_map(|p| p.temp).collect();
+                    let avg_temp = if temps.is_empty() {
+                        None
+                    } else {
+                        Some(temps.iter().sum::<f64>() / temps.len() as f64)
+                    };
+
+                    // Sum precipitation
+                    let precips: Vec<f64> = points.iter().filter_map(|p| p.precip).collect();
+                    let sum_precip = if precips.is_empty() {
+                        None
+                    } else {
+                        Some(precips.iter().sum::<f64>())
+                    };
+
+                    // Most significant WMO code
+                    let most_significant_code = points
+                        .iter()
+                        .filter_map(|p| p.code)
+                        .max_by_key(|&code| wmo_severity(code));
+
+                    new_by_model[model_idx].1.push(WeatherPoint {
+                        temp: avg_temp,
+                        precip: sum_precip,
+                        code: most_significant_code,
+                    });
+                }
+
+                i = j;
+            }
+        }
+
+        self.times = new_times;
+        self.by_model = new_by_model;
     }
 }
 

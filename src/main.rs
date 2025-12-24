@@ -40,6 +40,10 @@ enum Command {
         )]
         models: Vec<String>,
 
+        /// Show hourly data for all days (default: 3-hour intervals for future days)
+        #[arg(long)]
+        full: bool,
+
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
@@ -194,6 +198,7 @@ fn do_forecast(
     location: &str,
     dates: &str,
     models: &[String],
+    full: bool,
     verbose: bool,
 ) -> anyhow::Result<()> {
     let location = resolve_location(location)?;
@@ -202,11 +207,15 @@ fn do_forecast(
     println!("Forecast for {}", location.display_name);
 
     let models: Vec<&str> = models.iter().map(|s| s.as_str()).collect();
-    let forecast = Forecast::download(location.latitude, location.longitude, &models)?;
+    let mut forecast = Forecast::download(location.latitude, location.longitude, &models)?;
 
     let now = Local::now()
         .with_timezone(&forecast.timezone)
         .fixed_offset();
+    if !full {
+        forecast.compress(now.date_naive());
+    }
+
     let time_range = resolve_time_range(date_range, forecast.timezone, now);
 
     if verbose {
@@ -257,8 +266,9 @@ fn main() -> anyhow::Result<()> {
             location,
             dates,
             models,
+            full,
             verbose,
-        } => do_forecast(&location, &dates, &models, verbose),
+        } => do_forecast(&location, &dates, &models, full, verbose),
         Command::Current { location, verbose } => do_current(&location, verbose),
     }
 }
