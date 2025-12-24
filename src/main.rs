@@ -155,7 +155,6 @@ fn build_forecast_table(
         .iter()
         .map(|dt| dt.format("%Hh").to_string())
         .collect();
-    let num_rows = time_points.len();
 
     let mut table = Table::new().column("Date", dates).column("Hour", hours);
 
@@ -183,8 +182,7 @@ fn build_forecast_table(
                     .collect(),
             )
             .column("Temp", temps.into_iter().map(format_temp).collect())
-            .column("Precip", precips)
-            .column("", vec![String::new(); num_rows]);
+            .column("Precip", precips);
     }
 
     table

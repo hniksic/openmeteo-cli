@@ -81,7 +81,7 @@ impl Table {
         let groups: Vec<_> = self.all_groups().collect();
 
         // Base column widths: max of header and data widths (using Unicode width)
-        let mut widths: Vec<usize> = self
+        let widths: Vec<usize> = self
             .columns
             .iter()
             .map(|col| {
@@ -92,52 +92,67 @@ impl Table {
 
         let has_named_groups = groups.iter().any(|(name, _)| name.is_some());
 
-        if has_named_groups {
-            // Expand columns so each group's span fits its name.
-            // Span width = sum of column widths + separating spaces.
+        // Precompute column ranges and target span widths for each group. When a group name is
+        // wider than its columns' natural span, we pad after the group rather than expanding
+        // column widths.
+        let group_info: Vec<((usize, usize), usize)> = {
             let mut col = 0;
-            for &(name, count) in &groups {
-                if let Some(name) = name {
-                    let span_width: usize =
-                        widths[col..col + count].iter().sum::<usize>() + count - 1;
-                    if name.width() > span_width {
-                        // Add the deficit to the last column in the group
-                        widths[col + count - 1] += name.width() - span_width;
-                    }
-                }
-                col += count;
-            }
+            groups
+                .iter()
+                .map(|&(name, count)| {
+                    let start = col;
+                    col += count;
+                    let natural_span = widths[start..col].iter().sum::<usize>() + count - 1;
+                    let target_span = if has_named_groups {
+                        let name_width = name.map(|n| n.width()).unwrap_or(0);
+                        std::cmp::max(natural_span, name_width)
+                    } else {
+                        natural_span
+                    };
+                    ((start, col), target_span)
+                })
+                .collect()
+        };
 
+        if has_named_groups {
             // Print group header row
-            let mut parts = Vec::new();
-            col = 0;
-            for &(name, count) in &groups {
-                let span_width: usize = widths[col..col + count].iter().sum::<usize>() + count - 1;
-                parts.push(ljust(name.unwrap_or(""), span_width));
-                col += count;
-            }
-            println!("{}", parts.join(" ").trim_ascii_end());
+            let header: Vec<String> = groups
+                .iter()
+                .zip(&group_info)
+                .map(|(&(name, _), &(_, span))| ljust(name.unwrap_or(""), span))
+                .collect();
+            println!("{}", header.join(" ").trim_ascii_end());
         }
 
-        // Print column headers (left-justified)
-        let header_line: Vec<String> = self
-            .columns
+        // Print column headers (left-justified), with inter-group padding
+        let header_line: Vec<String> = group_info
             .iter()
-            .zip(widths.iter())
-            .map(|(col, w)| ljust(&col.header, *w))
+            .map(|&((start, end), span)| {
+                let cols: Vec<String> = self.columns[start..end]
+                    .iter()
+                    .zip(&widths[start..end])
+                    .map(|(c, &w)| ljust(&c.header, w))
+                    .collect();
+                ljust(&cols.join(" "), span)
+            })
             .collect();
         println!("{}", header_line.join(" ").trim_ascii_end());
 
-        // Print data rows (right-justified for numeric alignment)
+        // Print data rows (right-justified for numeric alignment), with inter-group padding
         let num_rows = self.columns[0].data.len();
         for row_idx in 0..num_rows {
-            let row: Vec<String> = self
-                .columns
+            let row: Vec<String> = group_info
                 .iter()
-                .zip(widths.iter())
-                .map(|(col, w)| {
-                    let val = col.data.get(row_idx).map(|s| s.as_str()).unwrap_or("-");
-                    rjust(val, *w)
+                .map(|&((start, end), span)| {
+                    let vals: Vec<String> = self.columns[start..end]
+                        .iter()
+                        .zip(&widths[start..end])
+                        .map(|(col, &w)| {
+                            let val = col.data.get(row_idx).map(|s| s.as_str()).unwrap_or("-");
+                            rjust(val, w)
+                        })
+                        .collect();
+                    ljust(&vals.join(" "), span)
                 })
                 .collect();
             println!("{}", row.join(" ").trim_ascii_end());
