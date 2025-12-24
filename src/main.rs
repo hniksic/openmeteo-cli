@@ -159,29 +159,24 @@ fn build_forecast_table(
     let mut table = Table::new().column("Date", dates).column("Hour", hours);
 
     for (model, weather_points) in by_model {
+        let mut symbols = Vec::new();
         let mut temps = Vec::new();
         let mut precips = Vec::new();
-        let mut codes = Vec::new();
 
-        for (&time, weather) in time_points.iter().zip(weather_points) {
+        for (i, &time) in time_points.iter().enumerate() {
             if !in_range(time) {
                 continue;
             }
-            temps.push(weather.temp);
-            codes.push((weather.code, time.hour()));
-            precips.push(format_precip(weather.precip));
+            let weather = weather_points.get(i);
+            symbols.push(weather_symbol(weather.and_then(|w| w.code), time.hour()));
+            temps.push(format_temp(weather.and_then(|w| w.temp)));
+            precips.push(format_precip(weather.and_then(|w| w.precip)));
         }
 
         table = table
             .group(model)
-            .column(
-                "",
-                codes
-                    .into_iter()
-                    .map(|(c, h)| weather_symbol(c, h))
-                    .collect(),
-            )
-            .column("Temp", temps.into_iter().map(format_temp).collect())
+            .column("", symbols)
+            .column("Temp", temps)
             .column("Precip", precips);
     }
 

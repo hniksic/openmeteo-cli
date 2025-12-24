@@ -87,8 +87,8 @@ impl Table {
         self.columns
             .iter()
             .map(|col| {
-                let max_data = col.data.iter().map(|v| v.width()).max().unwrap_or(0);
-                col.header.width().max(max_data)
+                let data_width = col.data.iter().map(|v| v.width()).max().unwrap_or(0);
+                col.header.width().max(data_width)
             })
             .collect()
     }
@@ -157,9 +157,7 @@ impl Table {
         println!("{}", header.trim_ascii_end());
 
         for row_idx in 0..self.columns[0].data.len() {
-            let row = self.format_row(&layouts, &widths, |col, w| {
-                rjust(col.data.get(row_idx).map(|s| s.as_str()).unwrap_or("-"), w)
-            });
+            let row = self.format_row(&layouts, &widths, |col, w| rjust(&col.data[row_idx], w));
             println!("{}", row.trim_ascii_end());
         }
     }
