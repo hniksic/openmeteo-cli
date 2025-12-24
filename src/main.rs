@@ -33,8 +33,8 @@ enum Command {
         dates: String,
 
         /// Comma-separated list of forecast models
-        #[arg(long, default_value = "gfs_graphcast025,ecmwf_ifs025")]
-        models: String,
+        #[arg(long, value_delimiter = ',', default_value = "gfs_graphcast025,ecmwf_ifs025")]
+        models: Vec<String>,
 
         /// Verbose output
         #[arg(short, long)]
@@ -186,13 +186,13 @@ fn build_forecast_table(
 ///
 /// Resolves the location (by name or coordinates), parses the date range, downloads forecast data
 /// from Open-Meteo for the requested models, and prints the result as a formatted table.
-fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyhow::Result<()> {
+fn do_forecast(location: &str, dates: &str, models: &[String], verbose: bool) -> anyhow::Result<()> {
     let location = resolve_location(location)?;
     let date_range = parse_date_range(dates)?;
 
     println!("Forecast for {}", location.display_name);
 
-    let models = models.split(',').collect_vec();
+    let models: Vec<&str> = models.iter().map(|s| s.as_str()).collect();
     let forecast = Forecast::download(location.latitude, location.longitude, &models)?;
 
     let now = Local::now()
