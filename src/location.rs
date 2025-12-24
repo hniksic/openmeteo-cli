@@ -4,10 +4,14 @@ use anyhow::{bail, Context};
 use regex::Regex;
 use serde::Deserialize;
 
+/// A resolved geographic location with coordinates and display name.
 #[derive(Debug, Clone)]
 pub struct Location {
+    /// Human-readable name (place name from Nominatim, or original coordinate string).
     pub display_name: String,
+    /// Latitude in degrees, range -90 to 90.
     pub latitude: f64,
+    /// Longitude in degrees, range -180 to 180.
     pub longitude: f64,
 }
 
@@ -32,17 +36,35 @@ struct Geometry {
     coordinates: [f64; 2], // [lon, lat]
 }
 
+/// Resolve a location string to geographic coordinates.
+///
+/// Accepts either a coordinate pair (e.g., "45.8150,15.9819") or a place name
+/// (e.g., "London"). Coordinates are validated to be within valid ranges.
+/// Place names are resolved using the Nominatim geocoding API.
 pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
-    static COORD_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$").unwrap());
+    static COORD_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r#"(?x)
+            ^
+            \s*
+            (-?\d+(?:\.\d+)?)   # latitude: decimal number
+            \s*,\s*
+            (-?\d+(?:\.\d+)?)   # longitude: decimal number
+            \s*
+            $
+        "#,
+        )
+        .unwrap()
+    });
 
     // Try parsing as coordinates first
     if let Some(caps) = COORD_RE.captures(s) {
-        let latitude: f64 = caps[1].parse()?;
-        let longitude: f64 = caps[2].parse()?;
+        const NUM_ERR: &str = "Latitude must be between -90 and 90, longitude between -180 and 180";
+        let latitude: f64 = caps[1].parse().context(NUM_ERR)?;
+        let longitude: f64 = caps[2].parse().context(NUM_ERR)?;
 
         if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
-            bail!("Latitude must be between -90 and 90, longitude between -180 and 180");
+            bail!(NUM_ERR);
         }
 
         return Ok(Location {
@@ -65,12 +87,15 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
         bail!("Geocoding API error: {}", response.status());
     }
 
-    let data: GeoJsonResponse = response.json().context("Geocoding JSON parsing failed")?;
+    let mut data: GeoJsonResponse = response.json().context("Geocoding JSON parsing failed")?;
+    if data.features.is_empty() {
+        bail!("Unknown location");
+    }
 
-    let feature = data.features.first().context("Unknown location")?;
+    let feature = data.features.remove(0);
     let [lon, lat] = feature.geometry.coordinates;
     Ok(Location {
-        display_name: feature.properties.display_name.clone(),
+        display_name: feature.properties.display_name,
         latitude: lat,
         longitude: lon,
     })
