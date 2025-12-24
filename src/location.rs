@@ -59,7 +59,6 @@ fn parse_coordinates(s: &str) -> Option<Location> {
     let caps = COORD_RE.captures(s)?;
     let latitude: f64 = caps[1].parse().ok()?;
     let longitude: f64 = caps[2].parse().ok()?;
-
     if !(-90.0..=90.0).contains(&latitude) || !(-180.0..=180.0).contains(&longitude) {
         return None;
     }
@@ -84,7 +83,7 @@ pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
     // Use Nominatim for geocoding
     let client = reqwest::blocking::Client::new();
     let response = client
-        .get("https://nominatim.openstreetmap.org/search.php")
+        .get("https://nominatim.openstreetmap.org/search")
         .query(&[("q", s), ("format", "geojson")])
         .header("User-Agent", "openmeteo-cli/0.0.1")
         .send()
