@@ -57,6 +57,7 @@ enum Command {
 enum ParsedDate {
     Today,
     Tomorrow,
+    RelativeDays(u8),
     Weekday(Weekday),
     Absolute(NaiveDate),
 }
@@ -83,12 +84,12 @@ fn parse_date(s: &str) -> anyhow::Result<ParsedDate> {
         _ => {
             if let Some(weekday) = parse_weekday(&s) {
                 Ok(ParsedDate::Weekday(weekday))
+            } else if let Some(days) = s.strip_prefix('+').and_then(|n| n.parse::<u8>().ok()) {
+                Ok(ParsedDate::RelativeDays(days))
             } else {
                 NaiveDate::parse_from_str(&s, "%Y-%m-%d")
                     .map(ParsedDate::Absolute)
-                    .context(
-                        "dates must be YYYY-MM-DD, YYYY-MM-DD..YYYY-MM-DD, 'today' or 'tomorrow'",
-                    )
+                    .context("dates must be YYYY-MM-DD, +N, weekday name, 'today' or 'tomorrow'")
             }
         }
     }
@@ -109,6 +110,7 @@ fn resolve_date(dt: ParsedDate, today: NaiveDate, weekday_start_at: NaiveDate) -
     match dt {
         ParsedDate::Today => today,
         ParsedDate::Tomorrow => today + Duration::days(1),
+        ParsedDate::RelativeDays(n) => today + Duration::days(n as i64),
         ParsedDate::Weekday(wanted) => {
             let mut date = weekday_start_at;
             while date.weekday() != wanted {
