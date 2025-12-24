@@ -1,3 +1,5 @@
+use itertools::Itertools;
+use std::ops::Range;
 use unicode_width::UnicodeWidthStr;
 
 struct Column {
@@ -5,10 +7,18 @@ struct Column {
     data: Vec<String>,
 }
 
-// A closed group: columns from some range have been finalized under this name.
+/// Finalized group: columns in a range, with an optional group name displayed above them.
 struct Group {
     name: Option<String>,
     count: usize,
+}
+
+/// Layout for a group during printing: which columns it spans and its display width.
+struct GroupLayout<'a> {
+    name: Option<&'a str>,
+    cols: Range<usize>,
+    /// Display width of this group (may exceed natural column widths if group name is wider).
+    span: usize,
 }
 
 /// A builder for aligned tabular output with optional column grouping.
@@ -45,7 +55,7 @@ impl Table {
     }
 
     /// Start a new named group. Subsequent columns belong to this group until
-    /// another `group()` call or `print()`.
+    /// another `group()` call.
     pub fn group(mut self, name: impl Into<String>) -> Self {
         // Close the current group
         let count = self.columns.len() - self.current_group_start;
@@ -72,90 +82,85 @@ impl Table {
             )
     }
 
+    /// Compute the display width of each column (max of header and data widths).
+    fn column_widths(&self) -> Vec<usize> {
+        self.columns
+            .iter()
+            .map(|col| {
+                let max_data = col.data.iter().map(|v| v.width()).max().unwrap_or(0);
+                col.header.width().max(max_data)
+            })
+            .collect()
+    }
+
+    /// Compute layout for each group: column range and display span.
+    fn group_layouts<'a>(
+        &'a self,
+        widths: &[usize],
+        expand_for_names: bool,
+    ) -> Vec<GroupLayout<'a>> {
+        let mut col = 0;
+        self.all_groups()
+            .map(|(name, count)| {
+                let cols = col..col + count;
+                col += count;
+                let natural_span = widths[cols.clone()].iter().sum::<usize>() + count - 1;
+                let span = if expand_for_names {
+                    natural_span.max(name.map_or(0, |n| n.width()))
+                } else {
+                    natural_span
+                };
+                GroupLayout { name, cols, span }
+            })
+            .collect()
+    }
+
+    /// Format a row by applying `format_cell` to each column, grouping results, and padding.
+    fn format_row(
+        &self,
+        layouts: &[GroupLayout],
+        widths: &[usize],
+        format_cell: impl Fn(&Column, usize) -> String,
+    ) -> String {
+        layouts
+            .iter()
+            .map(|g| {
+                let cells = self.columns[g.cols.clone()]
+                    .iter()
+                    .zip(&widths[g.cols.clone()])
+                    .map(|(col, &w)| format_cell(col, w))
+                    .join(" ");
+                ljust(&cells, g.span)
+            })
+            .join(" ")
+    }
+
     /// Print the table to stdout with aligned columns.
     pub fn print(&self) {
         if self.columns.is_empty() {
             return;
         }
 
-        let groups: Vec<_> = self.all_groups().collect();
-
-        // Base column widths: max of header and data widths (using Unicode width)
-        let widths: Vec<usize> = self
-            .columns
-            .iter()
-            .map(|col| {
-                let max_data = col.data.iter().map(|v| v.width()).max().unwrap_or(0);
-                std::cmp::max(col.header.width(), max_data)
-            })
-            .collect();
-
-        let has_named_groups = groups.iter().any(|(name, _)| name.is_some());
-
-        // Precompute column ranges and target span widths for each group. When a group name is
-        // wider than its columns' natural span, we pad after the group rather than expanding
-        // column widths.
-        let group_info: Vec<((usize, usize), usize)> = {
-            let mut col = 0;
-            groups
-                .iter()
-                .map(|&(name, count)| {
-                    let start = col;
-                    col += count;
-                    let natural_span = widths[start..col].iter().sum::<usize>() + count - 1;
-                    let target_span = if has_named_groups {
-                        let name_width = name.map(|n| n.width()).unwrap_or(0);
-                        std::cmp::max(natural_span, name_width)
-                    } else {
-                        natural_span
-                    };
-                    ((start, col), target_span)
-                })
-                .collect()
-        };
+        let widths = self.column_widths();
+        let has_named_groups = self.all_groups().any(|(name, _)| name.is_some());
+        let layouts = self.group_layouts(&widths, has_named_groups);
 
         if has_named_groups {
-            // Print group header row
-            let header: Vec<String> = groups
+            let header = layouts
                 .iter()
-                .zip(&group_info)
-                .map(|(&(name, _), &(_, span))| ljust(name.unwrap_or(""), span))
-                .collect();
-            println!("{}", header.join(" ").trim_ascii_end());
+                .map(|g| ljust(g.name.unwrap_or(""), g.span))
+                .join(" ");
+            println!("{}", header.trim_ascii_end());
         }
 
-        // Print column headers (left-justified), with inter-group padding
-        let header_line: Vec<String> = group_info
-            .iter()
-            .map(|&((start, end), span)| {
-                let cols: Vec<String> = self.columns[start..end]
-                    .iter()
-                    .zip(&widths[start..end])
-                    .map(|(c, &w)| ljust(&c.header, w))
-                    .collect();
-                ljust(&cols.join(" "), span)
-            })
-            .collect();
-        println!("{}", header_line.join(" ").trim_ascii_end());
+        let header = self.format_row(&layouts, &widths, |col, w| ljust(&col.header, w));
+        println!("{}", header.trim_ascii_end());
 
-        // Print data rows (right-justified for numeric alignment), with inter-group padding
-        let num_rows = self.columns[0].data.len();
-        for row_idx in 0..num_rows {
-            let row: Vec<String> = group_info
-                .iter()
-                .map(|&((start, end), span)| {
-                    let vals: Vec<String> = self.columns[start..end]
-                        .iter()
-                        .zip(&widths[start..end])
-                        .map(|(col, &w)| {
-                            let val = col.data.get(row_idx).map(|s| s.as_str()).unwrap_or("-");
-                            rjust(val, w)
-                        })
-                        .collect();
-                    ljust(&vals.join(" "), span)
-                })
-                .collect();
-            println!("{}", row.join(" ").trim_ascii_end());
+        for row_idx in 0..self.columns[0].data.len() {
+            let row = self.format_row(&layouts, &widths, |col, w| {
+                rjust(col.data.get(row_idx).map(|s| s.as_str()).unwrap_or("-"), w)
+            });
+            println!("{}", row.trim_ascii_end());
         }
     }
 }
