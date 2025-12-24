@@ -28,8 +28,8 @@ enum Command {
         /// Location name or lat,long pair
         location: String,
 
-        /// YYYY-MM-DD, 'today', 'tomorrow', or weekday, or date1..date2
-        #[arg(default_value = "today")]
+        /// Date or range: YYYY-MM-DD, +N, 'today', 'tomorrow', weekday, or date1..date2
+        #[arg(default_value = "today", value_name = "DATE_RANGE")]
         dates: String,
 
         /// Comma-separated list of forecast models
