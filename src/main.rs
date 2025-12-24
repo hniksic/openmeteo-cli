@@ -104,6 +104,11 @@ pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
+/// Build a table displaying hourly forecast data for multiple models.
+///
+/// Filters the forecast data to the requested time range, then constructs a table with Date and
+/// Hour columns on the left, followed by weather symbol, temperature, and precipitation columns
+/// for each model. Dates are deduped so only the first row of each day shows the date.
 fn build_forecast_table(
     times: &[DateTime<FixedOffset>],
     by_model: &[(String, Vec<Weather>)],
@@ -177,6 +182,10 @@ fn build_forecast_table(
     table
 }
 
+/// Handle the `forecast` subcommand: fetch and display weather forecast.
+///
+/// Resolves the location (by name or coordinates), parses the date range, downloads forecast data
+/// from Open-Meteo for the requested models, and prints the result as a formatted table.
 fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyhow::Result<()> {
     let location = resolve_location(location)?;
     let date_range = parse_date_range(dates)?;
@@ -201,6 +210,10 @@ fn do_forecast(location: &str, dates: &str, models: &str, verbose: bool) -> anyh
     Ok(())
 }
 
+/// Handle the `current` subcommand: fetch and display current weather.
+///
+/// Resolves the location (by name or coordinates), downloads current weather from Open-Meteo,
+/// and prints the result as a single-row table.
 fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
     let location = resolve_location(location)?;
 
