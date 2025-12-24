@@ -194,20 +194,20 @@ fn build_forecast_table(
 ///
 /// Resolves the location (by name or coordinates), parses the date range, downloads forecast data
 /// from Open-Meteo for the requested models, and prints the result as a formatted table.
-fn do_forecast(
+async fn do_forecast(
     location: &str,
     dates: &str,
     models: &[String],
     full: bool,
     verbose: bool,
 ) -> anyhow::Result<()> {
-    let location = resolve_location(location)?;
+    let location = resolve_location(location).await?;
     let date_range = parse_date_range(dates)?;
 
     println!("Forecast for {}", location.display_name);
 
     let models: Vec<&str> = models.iter().map(|s| s.as_str()).collect();
-    let mut forecast = Forecast::download(location.latitude, location.longitude, &models)?;
+    let mut forecast = Forecast::download(location.latitude, location.longitude, &models).await?;
 
     let now = Local::now()
         .with_timezone(&forecast.timezone)
@@ -232,12 +232,12 @@ fn do_forecast(
 ///
 /// Resolves the location (by name or coordinates), downloads current weather from Open-Meteo,
 /// and prints the result as a single-row table.
-fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
-    let location = resolve_location(location)?;
+async fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
+    let location = resolve_location(location).await?;
 
     println!("Current weather for {}", location.display_name);
 
-    let current = Current::download(location.latitude, location.longitude)?;
+    let current = Current::download(location.latitude, location.longitude).await?;
 
     if verbose {
         println!("Grid-cell location: {}", current.location.link());
@@ -258,7 +258,8 @@ fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -268,8 +269,8 @@ fn main() -> anyhow::Result<()> {
             models,
             full,
             verbose,
-        } => do_forecast(&location, &dates, &models, full, verbose),
-        Command::Current { location, verbose } => do_current(&location, verbose),
+        } => do_forecast(&location, &dates, &models, full, verbose).await,
+        Command::Current { location, verbose } => do_current(&location, verbose).await,
     }
 }
 

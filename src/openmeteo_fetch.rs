@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Timelike};
-use chrono_tz::Tz;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -49,17 +48,17 @@ impl Coord {
 pub struct Forecast {
     pub times: Vec<DateTime<FixedOffset>>,
     pub by_model: Vec<(String, Vec<WeatherPoint>)>,
-    pub timezone: Tz,
+    pub timezone: chrono_tz::Tz,
     pub location: Coord,
 }
 
 impl Forecast {
-    pub fn download(latitude: f64, longitude: f64, models: &[&str]) -> anyhow::Result<Self> {
+    pub async fn download(latitude: f64, longitude: f64, models: &[&str]) -> anyhow::Result<Self> {
         #[derive(Debug, Deserialize)]
         struct Response {
             latitude: f64,
             longitude: f64,
-            timezone: Tz,
+            timezone: chrono_tz::Tz,
             hourly: HourlyData,
         }
 
@@ -90,7 +89,7 @@ impl Forecast {
             timezone: &'a str,
         }
 
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::Client::new();
         let models_str = models.join(",");
 
         let response = client
@@ -104,13 +103,14 @@ impl Forecast {
                 timezone: "auto",
             })
             .send()
+            .await
             .context("HTTP request failed")?;
 
         if !response.status().is_success() {
             bail!("API error: {}", response.status());
         }
 
-        let mut data: Response = response.json().context("JSON parsing failed")?;
+        let mut data: Response = response.json().await.context("JSON parsing failed")?;
 
         let times: Vec<DateTime<FixedOffset>> = data
             .hourly
@@ -267,12 +267,12 @@ pub struct Current {
 }
 
 impl Current {
-    pub fn download(latitude: f64, longitude: f64) -> anyhow::Result<Self> {
+    pub async fn download(latitude: f64, longitude: f64) -> anyhow::Result<Self> {
         #[derive(Debug, Deserialize)]
         struct Response {
             latitude: f64,
             longitude: f64,
-            timezone: Tz,
+            timezone: chrono_tz::Tz,
             current: CurrentData,
         }
 
@@ -292,7 +292,7 @@ impl Current {
             timezone: &'a str,
         }
 
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::Client::new();
 
         let response = client
             .get("https://api.open-meteo.com/v1/forecast")
@@ -303,13 +303,14 @@ impl Current {
                 timezone: "auto",
             })
             .send()
+            .await
             .context("HTTP request failed")?;
 
         if !response.status().is_success() {
             bail!("API error: {}", response.status());
         }
 
-        let data: Response = response.json().context("JSON parsing failed")?;
+        let data: Response = response.json().await.context("JSON parsing failed")?;
 
         let naive = NaiveDateTime::parse_from_str(&data.current.time, "%Y-%m-%dT%H:%M")
             .context("Failed to parse time")?;

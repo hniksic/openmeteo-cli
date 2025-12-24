@@ -75,25 +75,29 @@ fn parse_coordinates(s: &str) -> Option<Location> {
 /// Accepts either a coordinate pair (e.g., "45.8150,15.9819") or a place name
 /// (e.g., "London"). Coordinates are validated to be within valid ranges.
 /// Place names are resolved using the Nominatim geocoding API.
-pub fn resolve_location(s: &str) -> anyhow::Result<Location> {
+pub async fn resolve_location(s: &str) -> anyhow::Result<Location> {
     if let Some(location) = parse_coordinates(s) {
         return Ok(location);
     }
 
     // Use Nominatim for geocoding
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let response = client
         .get("https://nominatim.openstreetmap.org/search")
         .query(&[("q", s), ("format", "geojson")])
         .header("User-Agent", "openmeteo-cli/0.0.1")
         .send()
+        .await
         .context("Geocoding request failed")?;
 
     if !response.status().is_success() {
         bail!("Geocoding API error: {}", response.status());
     }
 
-    let mut data: GeoJsonResponse = response.json().context("Geocoding JSON parsing failed")?;
+    let mut data: GeoJsonResponse = response
+        .json()
+        .await
+        .context("Geocoding JSON parsing failed")?;
     if data.features.is_empty() {
         bail!("Unknown location");
     }
