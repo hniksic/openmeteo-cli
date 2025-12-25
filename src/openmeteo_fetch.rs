@@ -10,7 +10,7 @@ pub const MAX_FORECAST_DAYS: u8 = 16;
 
 /// Return severity score for WMO weather code. Higher values indicate more significant weather
 /// that should take precedence when aggregating multiple hours.
-fn wmo_severity(code: i32) -> i32 {
+fn wmo_severity(code: u8) -> u8 {
     match code {
         95..=99 => 100, // Thunderstorm
         80..=86 => 80,  // Rain/snow showers
@@ -29,7 +29,7 @@ fn wmo_severity(code: i32) -> i32 {
 pub struct WeatherPoint {
     pub temp: Option<f64>,
     pub precip: Option<f64>,
-    pub code: Option<i32>,
+    pub code: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -153,7 +153,7 @@ impl Forecast {
                     .take_field_array::<f64>(&propname("precipitation", model));
                 let codes = data
                     .hourly
-                    .take_field_array::<i32>(&propname("weather_code", model));
+                    .take_field_array::<u8>(&propname("weather_code", model));
 
                 let forecast: Vec<WeatherPoint> = temps
                     .into_iter()
@@ -174,11 +174,13 @@ impl Forecast {
         })
     }
 
-    /// Compress forecast data: keep hourly for today, use 3-hour intervals for other days.
+    /// Compact forecast data into a smaller number of points: keep hourly for today, use
+    /// 3-hour intervals for other days.
     ///
-    /// For compressed intervals, temperature is averaged, precipitation is summed, and the most
-    /// significant WMO weather code is selected (e.g., rain takes precedence over sun).
-    pub fn compress(&mut self, today: NaiveDate) {
+    /// For compacted intervals, temperature is averaged, precipitation is summed, and the
+    /// most significant WMO weather code is selected (e.g., rain takes precedence over
+    /// sun).
+    pub fn compact(&mut self, today: NaiveDate) {
         let mut new_times = Vec::new();
         let mut new_by_model: Vec<(String, Vec<WeatherPoint>)> = self
             .by_model
@@ -284,7 +286,7 @@ impl Current {
             time: String,
             temperature_2m: Option<f64>,
             precipitation: Option<f64>,
-            weather_code: Option<i32>,
+            weather_code: Option<u8>,
         }
 
         #[derive(Serialize)]

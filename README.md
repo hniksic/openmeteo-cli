@@ -139,3 +139,23 @@ locations, and many of them don't support full 16 days.
 | `ncep_nam_conus` | NCEP NAM U.S. Conus |
 
 </details>
+
+## JSON output
+
+Both `forecast` and `current` support a `--json` flag for machine-readable output. The
+output is in [JSON Lines](https://jsonlines.org/) format, with one JSON object per line.
+For forecasts, entries are sorted by time, so data points from different models for the
+same hour appear together.
+
+```
+$ openmeteo forecast zagreb today --json | head -2
+{"model":"gfs_graphcast025","time":"2025-12-25T12:00:00+01:00","latitude":45.75,"longitude":16.0,"temperature":3.2,"precipitation":0.0,"weather_code":3,"weather_symbol":"☁"}
+{"model":"ecmwf_ifs025","time":"2025-12-25T12:00:00+01:00","latitude":45.75,"longitude":16.0,"temperature":3.5,"precipitation":0.1,"weather_code":51,"weather_symbol":"🌧"}
+```
+
+Current weather output has the same format, but without the `model` field:
+
+```
+$ openmeteo current zagreb --json
+{"time":"2025-12-25T11:15:00+01:00","latitude":45.82,"longitude":15.98,"temperature":2.3,"precipitation":0.0,"weather_code":3,"weather_symbol":"☁"}
+```

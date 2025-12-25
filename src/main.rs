@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use itertools::Itertools;
 use location::resolve_location;
 use openmeteo_fetch::{Current, Forecast, WeatherPoint, MAX_FORECAST_DAYS};
+use serde::Serialize;
 use table::Table;
 use time::{parse_date_range, resolve_time_range};
 use unicode_width::UnicodeWidthStr;
@@ -44,6 +45,10 @@ enum Command {
         #[arg(long)]
         full: bool,
 
+        /// Output raw JSON instead of formatted table
+        #[arg(long)]
+        json: bool,
+
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
@@ -53,13 +58,18 @@ enum Command {
         /// Location name or lat,long pair
         location: String,
 
+        /// Output raw JSON instead of formatted table
+        #[arg(long)]
+        json: bool,
+
         /// Verbose output
         #[arg(short, long)]
         verbose: bool,
     },
 }
 
-fn wmo_to_symbol(code: i32, is_night: bool) -> &'static str {
+fn wmo_to_symbol(code: u8, hour: u8) -> &'static str {
+    let is_night = !(6..20).contains(&hour);
     match code {
         0 if is_night => "\u{1F319}",       // CRESCENT MOON - Clear sky (night)
         0 => "\u{1F31E}",                   // BLACK SUN WITH RAYS - Clear sky
@@ -84,12 +94,11 @@ fn wmo_to_symbol(code: i32, is_night: bool) -> &'static str {
 /// Weather emoji have inconsistent grapheme widths (1 or 2). To align columns, we add a space
 /// after narrow (width 1) emoji, normalizing all symbols to width 2. This must happen here
 /// rather than in generic padding because the space must immediately follow the emoji.
-fn weather_symbol(code: Option<i32>, hour: u32) -> String {
+fn weather_symbol(code: Option<u8>, hour: u8) -> String {
     match code {
         None => "-".to_string(),
         Some(c) => {
-            let is_night = !(6..20).contains(&hour);
-            let sym = wmo_to_symbol(c, is_night);
+            let sym = wmo_to_symbol(c, hour);
             if sym.width() == 1 {
                 format!("{} ", sym)
             } else {
@@ -168,7 +177,10 @@ fn build_forecast_table(
                 continue;
             }
             let weather = weather_points.get(i);
-            symbols.push(weather_symbol(weather.and_then(|w| w.code), time.hour()));
+            symbols.push(weather_symbol(
+                weather.and_then(|w| w.code),
+                time.hour() as u8,
+            ));
             temps.push(format_temp(weather.and_then(|w| w.temp)));
             precips.push(format_precip(weather.and_then(|w| w.precip)));
         }
@@ -192,12 +204,11 @@ async fn do_forecast(
     dates: &str,
     models: &[String],
     full: bool,
+    json: bool,
     verbose: bool,
 ) -> anyhow::Result<()> {
     let location = resolve_location(location).await?;
     let date_range = parse_date_range(dates)?;
-
-    println!("Forecast for {}", location.display_name);
 
     let models: Vec<&str> = models.iter().map(|s| s.as_str()).collect();
     let mut forecast = Forecast::download(location.latitude, location.longitude, &models).await?;
@@ -205,37 +216,90 @@ async fn do_forecast(
     let now = Local::now()
         .with_timezone(&forecast.timezone)
         .fixed_offset();
-    if !full {
-        forecast.compress(now.date_naive());
-    }
 
     let time_range = resolve_time_range(date_range, forecast.timezone, now);
 
+    if json {
+        print_forecast_json(&forecast, time_range);
+        return Ok(());
+    }
+
+    println!("Forecast for {}", location.display_name);
     if verbose {
         println!("Grid-cell location: {}", forecast.location.link());
         println!("Timezone: {}", forecast.timezone);
         println!("Interval: [{}, {})", time_range.0, time_range.1);
     }
-
+    if !full {
+        forecast.compact(now.date_naive());
+    }
     build_forecast_table(&forecast.times, &forecast.by_model, time_range).print();
     Ok(())
+}
+
+#[derive(Serialize)]
+struct WeatherPointOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    time: DateTime<FixedOffset>,
+    latitude: f64,
+    longitude: f64,
+    temperature: f64,
+    precipitation: f64,
+    weather_code: u8,
+    weather_symbol: &'static str,
+}
+
+fn print_forecast_json(
+    forecast: &Forecast,
+    (start_time, end_time): (DateTime<FixedOffset>, DateTime<FixedOffset>),
+) {
+    let mut outputs = Vec::new();
+
+    for (model_name, points) in &forecast.by_model {
+        for (&time, point) in forecast.times.iter().zip(points) {
+            if !(start_time <= time && time < end_time) {
+                continue;
+            }
+            let (Some(temp), Some(precip), Some(code)) = (point.temp, point.precip, point.code)
+            else {
+                continue;
+            };
+            outputs.push(WeatherPointOutput {
+                model: Some(model_name.clone()),
+                time,
+                latitude: forecast.location.latitude,
+                longitude: forecast.location.longitude,
+                temperature: temp,
+                precipitation: precip,
+                weather_code: code,
+                weather_symbol: wmo_to_symbol(code, time.hour() as u8),
+            });
+        }
+    }
+
+    outputs.sort_by_key(|o| o.time);
+    for output in outputs {
+        println!("{}", serde_json::to_string(&output).unwrap());
+    }
 }
 
 /// Handle the `current` subcommand: fetch and display current weather.
 ///
 /// Resolves the location (by name or coordinates), downloads current weather from Open-Meteo,
 /// and prints the result as a single-row table.
-async fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
+async fn do_current(location: &str, json: bool, verbose: bool) -> anyhow::Result<()> {
     let location = resolve_location(location).await?;
-
-    println!("Current weather for {}", location.display_name);
-
     let current = Current::download(location.latitude, location.longitude).await?;
 
+    if json {
+        print_current_json(&current);
+        return Ok(());
+    }
+    println!("Current weather for {}", location.display_name);
     if verbose {
         println!("Grid-cell location: {}", current.location.link());
     }
-
     Table::new()
         .column(
             "Time",
@@ -243,12 +307,36 @@ async fn do_current(location: &str, verbose: bool) -> anyhow::Result<()> {
         )
         .column(
             "",
-            vec![weather_symbol(current.weather.code, current.time.hour())],
+            vec![weather_symbol(
+                current.weather.code,
+                current.time.hour() as u8,
+            )],
         )
         .column("Temp", vec![format_temp(current.weather.temp)])
         .column("Precip", vec![format_precip(current.weather.precip)])
         .print();
     Ok(())
+}
+
+fn print_current_json(current: &Current) {
+    let (Some(temp), Some(precip), Some(code)) = (
+        current.weather.temp,
+        current.weather.precip,
+        current.weather.code,
+    ) else {
+        return;
+    };
+    let output = WeatherPointOutput {
+        model: None,
+        time: current.time,
+        latitude: current.location.latitude,
+        longitude: current.location.longitude,
+        temperature: temp,
+        precipitation: precip,
+        weather_code: code,
+        weather_symbol: wmo_to_symbol(code, current.time.hour() as u8),
+    };
+    println!("{}", serde_json::to_string(&output).unwrap());
 }
 
 #[tokio::main]
@@ -261,9 +349,14 @@ async fn main() -> anyhow::Result<()> {
             dates,
             models,
             full,
+            json,
             verbose,
-        } => do_forecast(&location, &dates, &models, full, verbose).await,
-        Command::Current { location, verbose } => do_current(&location, verbose).await,
+        } => do_forecast(&location, &dates, &models, full, json, verbose).await,
+        Command::Current {
+            location,
+            json,
+            verbose,
+        } => do_current(&location, json, verbose).await,
     }
 }
 
