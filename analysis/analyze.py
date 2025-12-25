@@ -6,7 +6,7 @@ Usage:
     python3 analyze.py [--location LOCATION] [--model MODEL] [--verbose] [--top N]
 
 Outputs RMSE and composite score for each model, with overall and per-location rankings.
-Composite score weights: precipitation (50%), temperature (35%), WMO code (15%).
+Composite score weights: rain miss (40%), temperature (30%), precipitation (15%), WMO code (15%).
 """
 from __future__ import annotations
 
@@ -29,9 +29,24 @@ LEAD_TIME_BUCKETS = [
     (10, 14, "10-14d"),
 ]
 
+# Models to exclude from analysis (e.g., known to have bad data)
+EXCLUDED_MODELS: set[str] = set()  # Can add model names here to exclude entirely
+
+# Minimum error to consider a forecast "genuine" (filters out fake data where
+# forecast exactly matches observation, which happens with some API issues)
+MIN_GENUINE_ERROR = 0.01  # °C - forecasts matching obs closer than this are excluded
+
+# Rain detection threshold (mm/hour)
+RAIN_THRESHOLD = 0.1
+
 # Composite score weights (must sum to 1.0)
-WEIGHT_PRECIP = 0.50
-WEIGHT_TEMP = 0.35
+# rain_miss = binary rain/no-rain misprediction (most important for outdoor planning)
+# precip = precipitation amount error
+# temp = temperature error
+# wmo = weather code error
+WEIGHT_RAIN_MISS = 0.40
+WEIGHT_PRECIP = 0.15
+WEIGHT_TEMP = 0.30
 WEIGHT_WMO = 0.15
 
 
@@ -149,15 +164,14 @@ def get_lead_time_bucket(lead_hours: float) -> str | None:
     return None
 
 
-def rmse(errors: list[float]) -> float:
-    """Calculate root mean square error."""
-    return np.sqrt(np.mean(np.square(errors)))
-
-
-def collect_errors(
+def collect_raw_errors(
     location: str, filter_model: str | None = None, verbose: bool = False
 ) -> pd.DataFrame:
-    """Collect prediction errors for a location."""
+    """Collect individual prediction errors for a location.
+
+    Returns a DataFrame with one row per (model, observation_time, lead_bucket) tuple,
+    containing the raw errors for proper RMSE pooling.
+    """
     observations = load_observations(location)
     predictions = load_predictions(location)
 
@@ -165,12 +179,10 @@ def collect_errors(
         print(f"Loaded {len(observations)} observations and {len(predictions)} predictions "
               f"for {location}")
 
-    # Collect squared errors by (model, bucket)
-    errors: dict[tuple[str, str], dict] = defaultdict(
-        lambda: {"temp": [], "precip": [], "wmo": []}
-    )
-
+    rows = []
     for pred in predictions:
+        if pred.model in EXCLUDED_MODELS:
+            continue
         if filter_model and pred.model != filter_model:
             continue
 
@@ -186,25 +198,105 @@ def collect_errors(
         if bucket is None:
             continue
 
-        errors[(pred.model, bucket)]["temp"].append(pred.temperature - obs.temperature)
-        errors[(pred.model, bucket)]["precip"].append(pred.precipitation - obs.precipitation)
-        errors[(pred.model, bucket)]["wmo"].append(pred.weather_code - obs.weather_code)
+        # Calculate errors
+        temp_err = pred.temperature - obs.temperature
+        precip_err = pred.precipitation - obs.precipitation
+        wmo_err = pred.weather_code - obs.weather_code
 
-    rows = []
-    for (model, bucket), errs in errors.items():
-        if not errs["temp"]:
+        # Filter out fake data (forecast exactly matches observation)
+        if abs(temp_err) < MIN_GENUINE_ERROR and abs(precip_err) < MIN_GENUINE_ERROR:
             continue
+
+        # Rain misprediction: did we get rain/no-rain wrong?
+        pred_rain = pred.precipitation > RAIN_THRESHOLD
+        obs_rain = obs.precipitation > RAIN_THRESHOLD
+        rain_miss = 1 if pred_rain != obs_rain else 0
+
         rows.append({
             "location": location,
-            "model": model,
+            "model": pred.model,
+            "obs_time": pred.forecast_for,
             "lead_time": bucket,
-            "n": len(errs["temp"]),
-            "temp_rmse": rmse(errs["temp"]),
-            "precip_rmse": rmse(errs["precip"]),
-            "wmo_rmse": rmse(errs["wmo"]),
+            "temp_err": temp_err,
+            "precip_err": precip_err,
+            "wmo_err": wmo_err,
+            "rain_miss": rain_miss,
         })
 
     return pd.DataFrame(rows)
+
+
+def filter_common_observations(
+    df: pd.DataFrame, min_model_fraction: float = 0.8, verbose: bool = False
+) -> pd.DataFrame:
+    """Filter to observation points where most models have data.
+
+    Two-stage filter for fair comparison:
+    1. Keep observations where ≥min_model_fraction of models have forecasts
+    2. Keep only models that have data for ≥min_model_fraction of those observations
+
+    This ensures all compared models are evaluated on the same observation set.
+    """
+    if df.empty:
+        return df
+
+    all_models = df["model"].nunique()
+    min_models = max(1, int(all_models * min_model_fraction))
+
+    # Stage 1: Keep observations with enough models
+    obs_key = ["location", "obs_time", "lead_time"]
+    models_per_obs = df.groupby(obs_key)["model"].nunique().reset_index()
+    models_per_obs.columns = obs_key + ["model_count"]
+    valid_obs = models_per_obs[models_per_obs["model_count"] >= min_models]
+    stage1 = df.merge(valid_obs[obs_key], on=obs_key)
+
+    if stage1.empty:
+        return stage1
+
+    # Stage 2: Keep only models with enough observations
+    total_obs = valid_obs.shape[0]
+    min_obs = max(1, int(total_obs * min_model_fraction))
+
+    obs_per_model = stage1.groupby("model")[obs_key[0]].count().reset_index()
+    obs_per_model.columns = ["model", "obs_count"]
+    valid_models = obs_per_model[obs_per_model["obs_count"] >= min_obs]["model"]
+
+    if verbose:
+        excluded = set(stage1["model"].unique()) - set(valid_models)
+        if excluded:
+            print(f"Excluding models with insufficient data: {', '.join(sorted(excluded))}")
+
+    stage2 = stage1[stage1["model"].isin(valid_models)]
+
+    # Stage 3: Now that we have fewer models, re-filter observations
+    # to only those where ALL remaining models have data
+    remaining_models = stage2["model"].nunique()
+    models_per_obs2 = stage2.groupby(obs_key)["model"].nunique().reset_index()
+    models_per_obs2.columns = obs_key + ["model_count"]
+    # Keep only observations where ALL remaining models have data
+    valid_obs2 = models_per_obs2[models_per_obs2["model_count"] == remaining_models]
+    final = stage2.merge(valid_obs2[obs_key], on=obs_key)
+
+    return final
+
+
+def compute_rmse_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute RMSE statistics from raw errors using proper pooling."""
+    if df.empty:
+        return pd.DataFrame()
+
+    def pooled_rmse(errors):
+        return np.sqrt(np.mean(np.square(errors)))
+
+    stats = df.groupby("model").agg(
+        n=("temp_err", "count"),
+        temp_rmse=("temp_err", pooled_rmse),
+        precip_rmse=("precip_err", pooled_rmse),
+        wmo_rmse=("wmo_err", pooled_rmse),
+        rain_miss_rate=("rain_miss", "mean"),  # fraction of rain/no-rain mispredictions
+    ).reset_index()
+
+    return stats
 
 
 def add_composite_score(df: pd.DataFrame) -> pd.DataFrame:
@@ -219,7 +311,7 @@ def add_composite_score(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # Normalize each metric to 0-1 range
-    for col in ["temp_rmse", "precip_rmse", "wmo_rmse"]:
+    for col in ["temp_rmse", "precip_rmse", "wmo_rmse", "rain_miss_rate"]:
         min_val, max_val = df[col].min(), df[col].max()
         if max_val > min_val:
             df[f"{col}_norm"] = (df[col] - min_val) / (max_val - min_val)
@@ -228,7 +320,8 @@ def add_composite_score(df: pd.DataFrame) -> pd.DataFrame:
 
     # Composite score (lower = better)
     df["score"] = (
-        WEIGHT_PRECIP * df["precip_rmse_norm"]
+        WEIGHT_RAIN_MISS * df["rain_miss_rate_norm"]
+        + WEIGHT_PRECIP * df["precip_rmse_norm"]
         + WEIGHT_TEMP * df["temp_rmse_norm"]
         + WEIGHT_WMO * df["wmo_rmse_norm"]
     )
@@ -246,15 +339,16 @@ def print_ranking(df: pd.DataFrame, title: str, top_n: int | None = None) -> Non
         df = df.head(top_n)
 
     print(f"\n{title}")
-    print("-" * 72)
-    print(f"{'#':<3} {'Model':<32} {'N':>5} {'Precip':>7} {'Temp':>6} {'WMO':>5} {'Score':>7}")
-    print(f"{'':3} {'':32} {'':>5} {'RMSE':>7} {'RMSE':>6} {'RMSE':>5} {'':>7}")
-    print("-" * 72)
+    print("-" * 80)
+    print(f"{'#':<3} {'Model':<28} {'N':>5} {'Rain':>6} {'Precip':>7} {'Temp':>6} {'WMO':>5} {'Score':>7}")
+    print(f"{'':3} {'':28} {'':>5} {'Miss%':>6} {'RMSE':>7} {'RMSE':>6} {'RMSE':>5} {'':>7}")
+    print("-" * 80)
 
     for rank, (_, row) in enumerate(df.iterrows(), 1):
         model = row.get("model", row.name) if "model" in row else row.name
-        print(f"{rank:<3} {model:<32} {int(row['n']):>5} "
-              f"{row['precip_rmse']:>7.2f} {row['temp_rmse']:>6.2f} "
+        rain_pct = row['rain_miss_rate'] * 100
+        print(f"{rank:<3} {model:<28} {int(row['n']):>5} "
+              f"{rain_pct:>5.1f}% {row['precip_rmse']:>7.2f} {row['temp_rmse']:>6.2f} "
               f"{row['wmo_rmse']:>5.1f} {row['score']:>7.3f}")
 
 
@@ -265,95 +359,102 @@ def main() -> None:
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
     parser.add_argument("--top", "-t", type=int, default=10, help="Show top N models (default 10)")
     parser.add_argument("--all", "-a", action="store_true", help="Show all models (not just top N)")
+    parser.add_argument(
+        "--min-models", type=float, default=0.8,
+        help="Min fraction of models required per observation (default 0.8)"
+    )
     args = parser.parse_args()
 
     top_n = None if args.all else args.top
 
-    # Collect data from all locations
-    all_results = []
+    # Collect raw errors from all locations
+    all_errors = []
     locations = [args.location] if args.location else list(LOCATIONS.keys())
 
     for location in locations:
         if location not in LOCATIONS:
             print(f"Unknown location: {location}")
             continue
-        df = collect_errors(location, filter_model=args.model, verbose=args.verbose)
-        all_results.append(df)
+        df = collect_raw_errors(location, filter_model=args.model, verbose=args.verbose)
+        all_errors.append(df)
 
-    if not all_results or all(df.empty for df in all_results):
+    if not all_errors or all(df.empty for df in all_errors):
         print("No data found. Run collect.py first to gather data.")
         return
 
-    results = pd.concat(all_results, ignore_index=True)
+    raw_errors = pd.concat(all_errors, ignore_index=True)
 
-    if results.empty:
+    if raw_errors.empty:
         print("No matching forecast-observation pairs found.")
         print("This is expected if you just started collecting data.")
         print("Wait for forecasts to 'mature' so observations exist for predicted times.")
         return
 
+    # Filter to common observation points for fair comparison
+    total_before = len(raw_errors)
+    models_before = raw_errors["model"].nunique()
+    filtered_errors = filter_common_observations(raw_errors, args.min_models, verbose=args.verbose)
+    total_after = len(filtered_errors)
+    models_after = filtered_errors["model"].nunique()
+
+    if filtered_errors.empty:
+        print("No common observation points found where enough models have data.")
+        print("Try lowering --min-models threshold (e.g., --min-models 0.5)")
+        return
+
     bucket_order = [b[2] for b in LEAD_TIME_BUCKETS]
-    results["lead_time"] = pd.Categorical(
-        results["lead_time"], categories=bucket_order, ordered=True
+    filtered_errors["lead_time"] = pd.Categorical(
+        filtered_errors["lead_time"], categories=bucket_order, ordered=True
     )
 
-    print("\n" + "=" * 72)
+    print("\n" + "=" * 80)
     print("WEATHER FORECAST ACCURACY ANALYSIS")
-    print("=" * 72)
+    print("=" * 80)
     print(f"Locations: {', '.join(locations)}")
-    print(f"Score weights: precip {WEIGHT_PRECIP:.0%}, temp {WEIGHT_TEMP:.0%}, "
-          f"WMO {WEIGHT_WMO:.0%}")
-    print(f"Total comparisons: {results['n'].sum():,}")
+    print(f"Score weights: rain_miss {WEIGHT_RAIN_MISS:.0%}, precip {WEIGHT_PRECIP:.0%}, "
+          f"temp {WEIGHT_TEMP:.0%}, WMO {WEIGHT_WMO:.0%}")
+    print(f"Rain threshold: >{RAIN_THRESHOLD}mm/hour")
+    print(f"Models: {models_after} (of {models_before} with data)")
+    print(f"Comparisons: {total_after:,} (filtered from {total_before:,} for fair comparison)")
+    print(f"Filter: observations where ≥{args.min_models:.0%} of models have forecasts")
 
     # === OVERALL RANKING ===
-    overall = results.groupby("model").agg({
-        "n": "sum",
-        "temp_rmse": "mean",
-        "precip_rmse": "mean",
-        "wmo_rmse": "mean",
-    })
+    overall = compute_rmse_stats(filtered_errors)
     overall = add_composite_score(overall)
+    overall = overall.set_index("model")
     print_ranking(overall, "OVERALL RANKING (all locations, all lead times)", top_n)
 
     # === RANKING BY LEAD TIME ===
-    print("\n" + "=" * 72)
+    print("\n" + "=" * 80)
     print("RANKING BY LEAD TIME")
 
     for bucket in bucket_order:
-        bucket_data = results[results["lead_time"] == bucket]
+        bucket_data = filtered_errors[filtered_errors["lead_time"] == bucket]
         if bucket_data.empty:
             continue
 
-        by_model = bucket_data.groupby("model").agg({
-            "n": "sum",
-            "temp_rmse": "mean",
-            "precip_rmse": "mean",
-            "wmo_rmse": "mean",
-        })
+        by_model = compute_rmse_stats(bucket_data)
         by_model = add_composite_score(by_model)
+        by_model = by_model.set_index("model")
         print_ranking(by_model, f"Lead time: {bucket}", top_n)
 
     # === RANKING BY LOCATION ===
     if len(locations) > 1:
-        print("\n" + "=" * 72)
+        print("\n" + "=" * 80)
         print("BEST MODELS BY LOCATION")
 
         for location in locations:
-            loc_data = results[results["location"] == location]
+            loc_data = filtered_errors[filtered_errors["location"] == location]
             if loc_data.empty:
                 continue
 
-            by_model = loc_data.groupby("model").agg({
-                "n": "sum",
-                "temp_rmse": "mean",
-                "precip_rmse": "mean",
-                "wmo_rmse": "mean",
-            })
+            by_model = compute_rmse_stats(loc_data)
             by_model = add_composite_score(by_model)
+            by_model = by_model.set_index("model")
             print_ranking(by_model, f"Location: {location.upper()}", top_n)
 
     # === SUMMARY: BEST MODEL PER CATEGORY ===
-    print("\n" + "=" * 72)
+    print("\n" + "=" * 80)
     print("SUMMARY: BEST MODELS")
     print("-" * 72)
 
@@ -363,26 +464,24 @@ def main() -> None:
 
     # Best per lead time
     for bucket in bucket_order:
-        bucket_data = results[results["lead_time"] == bucket]
+        bucket_data = filtered_errors[filtered_errors["lead_time"] == bucket]
         if bucket_data.empty:
             continue
-        by_model = bucket_data.groupby("model").agg({
-            "n": "sum", "temp_rmse": "mean", "precip_rmse": "mean", "wmo_rmse": "mean"
-        })
+        by_model = compute_rmse_stats(bucket_data)
         by_model = add_composite_score(by_model)
+        by_model = by_model.set_index("model")
         best = by_model.sort_values("score").index[0]
         print(f"{'Best for ' + bucket + ':':<25} {best}")
 
     # Best per location
     if len(locations) > 1:
         for location in locations:
-            loc_data = results[results["location"] == location]
+            loc_data = filtered_errors[filtered_errors["location"] == location]
             if loc_data.empty:
                 continue
-            by_model = loc_data.groupby("model").agg({
-                "n": "sum", "temp_rmse": "mean", "precip_rmse": "mean", "wmo_rmse": "mean"
-            })
+            by_model = compute_rmse_stats(loc_data)
             by_model = add_composite_score(by_model)
+            by_model = by_model.set_index("model")
             best = by_model.sort_values("score").index[0]
             print(f"{'Best for ' + location + ':':<25} {best}")
 

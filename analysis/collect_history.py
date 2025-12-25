@@ -31,10 +31,10 @@ PREVIOUS_RUNS_API = "https://previous-runs-api.open-meteo.com/v1/forecast"
 HISTORICAL_API = "https://archive-api.open-meteo.com/v1/archive"
 
 # Rate limiting (be nice to the free API - Previous Runs API has stricter limits)
-RATE_LIMIT_DELAY = 6.0
+RATE_LIMIT_DELAY = 10.0
 
 # Max models per request to avoid overloading the API
-MODELS_PER_BATCH = 8
+MODELS_PER_BATCH = 4
 
 
 def log(msg: str) -> None:
@@ -352,17 +352,21 @@ def collect_historical_data(
             if forecasts_complete:
                 log(f"  {location}: forecasts exist, skipping")
             else:
+                # Only fetch missing models when resuming
                 if models_in_file:
-                    missing = set(models) - models_in_file
-                    log(f"  {location}: forecasts incomplete, missing {len(missing)} models: "
-                        f"{', '.join(sorted(missing)[:5])}{'...' if len(missing) > 5 else ''}")
+                    models_to_fetch = sorted(set(models) - models_in_file)
+                    log(f"  {location}: forecasts incomplete, missing {len(models_to_fetch)} models: "
+                        f"{', '.join(models_to_fetch[:5])}{'...' if len(models_to_fetch) > 5 else ''}")
+                else:
+                    models_to_fetch = models
+
                 total_fc_count = 0
                 all_models_found: set[str] = set()
 
                 # Split models into batches
-                num_batches = (len(models) + MODELS_PER_BATCH - 1) // MODELS_PER_BATCH
-                for batch_idx, batch_start in enumerate(range(0, len(models), MODELS_PER_BATCH)):
-                    batch = models[batch_start:batch_start + MODELS_PER_BATCH]
+                num_batches = (len(models_to_fetch) + MODELS_PER_BATCH - 1) // MODELS_PER_BATCH
+                for batch_idx, batch_start in enumerate(range(0, len(models_to_fetch), MODELS_PER_BATCH)):
+                    batch = models_to_fetch[batch_start:batch_start + MODELS_PER_BATCH]
                     log(f"  {location}: fetching batch {batch_idx + 1}/{num_batches} "
                         f"({len(batch)} models)...")
                     forecast_data = fetch_previous_runs(
@@ -376,10 +380,10 @@ def collect_historical_data(
                         all_models_found.update(models_found)
                     time.sleep(RATE_LIMIT_DELAY)
 
-                missing = set(models) - all_models_found
-                if missing:
-                    log(f"  {location}: {total_fc_count} forecasts ({len(all_models_found)}/{len(models)} "
-                        f"models, missing: {', '.join(sorted(missing)[:5])}...)")
+                still_missing = set(models_to_fetch) - all_models_found
+                if still_missing:
+                    log(f"  {location}: {total_fc_count} forecasts ({len(all_models_found)}/{len(models_to_fetch)} "
+                        f"models, still missing: {', '.join(sorted(still_missing)[:5])}...)")
                 else:
                     log(f"  {location}: {total_fc_count} forecasts ({len(all_models_found)} models)")
 

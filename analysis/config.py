@@ -12,8 +12,9 @@ LOCATIONS = {
 # Global models
 GLOBAL_MODELS = [
     "best_match",
+    "ecmwf_aifs025_single",
     "ecmwf_ifs025",
-    "ecmwf_ifs",
+    # "ecmwf_ifs",  # Previous Runs API returns observations, not forecasts
     "gfs_seamless",
     "gfs_global",
     "gfs_graphcast025",
@@ -23,8 +24,8 @@ GLOBAL_MODELS = [
     "gem_global",
     "jma_seamless",
     "jma_gsm",
-    "kma_seamless",
-    "kma_gdps",
+    # "kma_seamless",  # No historical data for Croatia
+    # "kma_gdps",  # No historical data for Croatia
     "cma_grapes_global",
     "bom_access_global",
 ]
@@ -37,7 +38,7 @@ EUROPEAN_MODELS = [
     "meteofrance_arpege_world",
     "meteofrance_arpege_europe",
     # "meteofrance_arome_france",  # France only
-    "meteofrance_arome_france_hd",
+    # "meteofrance_arome_france_hd",  # No historical data for Croatia
     "knmi_seamless",
     "knmi_harmonie_arome_europe",
     # "knmi_harmonie_arome_netherlands",  # Netherlands only
@@ -48,10 +49,10 @@ EUROPEAN_MODELS = [
     # "ukmo_uk_deterministic_2km",  # UK only
     "metno_seamless",
     # "metno_nordic",  # Nordic countries only
-    "meteoswiss_icon_seamless",
-    "meteoswiss_icon_ch1",
-    "meteoswiss_icon_ch2",
-    "italia_meteo_arpae_icon_2i",
+    # "meteoswiss_icon_seamless",  # No historical data for Croatia
+    # "meteoswiss_icon_ch1",  # No historical data for Croatia
+    # "meteoswiss_icon_ch2",  # No historical data for Croatia
+    # "italia_meteo_arpae_icon_2i",  # No historical data for Croatia
 ]
 
 # All models combined
