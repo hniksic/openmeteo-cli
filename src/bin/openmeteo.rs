@@ -1,20 +1,15 @@
-mod data;
-mod fetch;
-mod location;
-mod table;
-
 use chrono::{DateTime, FixedOffset, Local, Timelike};
 use clap::{Parser, Subcommand};
+use itertools::Itertools;
+use serde::Serialize;
 
-use data::{
+use openmeteo::data::{
     format_precip, format_temp, format_wmo_symbol, Current, Forecast, WeatherPoint,
     MAX_FORECAST_DAYS,
 };
-use fetch::{download_current, download_forecast};
-use itertools::Itertools;
-use location::resolve_location;
-use serde::Serialize;
-use table::Table;
+use openmeteo::fetch::{download_current, download_forecast};
+use openmeteo::location::resolve_location;
+use openmeteo::table::Table;
 use time::{parse_date_range, resolve_time_range};
 
 #[derive(Parser)]
@@ -74,7 +69,7 @@ enum Command {
 
 /// Dedup consecutive identical values, replacing duplicates with empty strings
 /// e.g. `dedup(["foo", "foo", "foo", "bar", "bar", "baz"]) == ["foo", "", "", "bar", "", "baz"]`.
-pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
+fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
     items
         .into_iter()
         .chunk_by(|item| item.clone())
@@ -313,6 +308,8 @@ mod time {
     };
     use chrono_tz::Tz;
 
+    use super::MAX_FORECAST_DAYS;
+
     #[derive(Debug, Copy, Clone, PartialEq)]
     pub enum RequestedDate {
         Today,
@@ -371,8 +368,7 @@ mod time {
             Some(("", "")) => anyhow::bail!("empty range '..' not allowed"),
             Some((left, right)) => {
                 let a = parse_date_or(left, RequestedDate::Today)?;
-                let b =
-                    parse_date_or(right, RequestedDate::RelativeDays(super::MAX_FORECAST_DAYS))?;
+                let b = parse_date_or(right, RequestedDate::RelativeDays(MAX_FORECAST_DAYS))?;
                 Ok((a, b))
             }
             None => {
@@ -575,7 +571,7 @@ mod time {
             // mon.. means mon..+16
             let (start, end) = parse_date_range("mon..").unwrap();
             assert_eq!(start, RequestedDate::Weekday(Weekday::Mon));
-            assert_eq!(end, RequestedDate::RelativeDays(crate::MAX_FORECAST_DAYS));
+            assert_eq!(end, RequestedDate::RelativeDays(MAX_FORECAST_DAYS));
 
             // just .. is forbidden
             assert!(parse_date_range("..").is_err());
