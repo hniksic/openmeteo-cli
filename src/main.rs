@@ -1,17 +1,21 @@
+mod data;
+mod fetch;
 mod location;
-mod openmeteo_fetch;
 mod table;
 
 use chrono::{DateTime, FixedOffset, Local, Timelike};
 use clap::{Parser, Subcommand};
 
+use data::{
+    format_precip, format_temp, format_wmo_symbol, Current, Forecast, WeatherPoint,
+    MAX_FORECAST_DAYS,
+};
+use fetch::{download_current, download_forecast};
 use itertools::Itertools;
 use location::resolve_location;
-use openmeteo_fetch::{Current, Forecast, WeatherPoint, MAX_FORECAST_DAYS};
 use serde::Serialize;
 use table::Table;
 use time::{parse_date_range, resolve_time_range};
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Parser)]
 #[command(name = "openmeteo")]
@@ -68,46 +72,6 @@ enum Command {
     },
 }
 
-fn wmo_to_symbol(code: u8, hour: u8) -> &'static str {
-    let is_night = !(6..20).contains(&hour);
-    match code {
-        0 if is_night => "\u{1F319}",       // CRESCENT MOON - Clear sky (night)
-        0 => "\u{1F31E}",                   // BLACK SUN WITH RAYS - Clear sky
-        1 if is_night => "\u{1F319}",       // CRESCENT MOON - Mainly clear (night)
-        1 => "\u{1F324}",                   // WHITE SUN WITH SMALL CLOUD - Mainly clear
-        2 if is_night => "\u{2601}",        // CLOUD - Partly cloudy (night)
-        2 => "\u{26C5}",                    // SUN BEHIND CLOUD - Partly cloudy
-        3 => "\u{2601}",                    // CLOUD - Overcast
-        45 | 48 => "\u{1F32B}",             // FOG
-        51..=67 => "\u{1F327}",             // CLOUD WITH RAIN - Drizzle/Rain
-        71..=75 => "\u{2744}",              // SNOWFLAKE - Snow
-        77 | 85 | 86 => "\u{1F328}",        // CLOUD WITH SNOW - Snow grains/showers
-        80..=82 if is_night => "\u{1F327}", // CLOUD WITH RAIN - Rain showers (night)
-        80..=82 => "\u{1F326}",             // WHITE SUN BEHIND CLOUD WITH RAIN - Rain showers
-        95..=99 => "\u{26C8}",              // THUNDER CLOUD AND RAIN - Thunderstorm
-        _ => "?",
-    }
-}
-
-/// Return weather emoji for display in a table column.
-///
-/// Weather emoji have inconsistent grapheme widths (1 or 2). To align columns, we add a space
-/// after narrow (width 1) emoji, normalizing all symbols to width 2. This must happen here
-/// rather than in generic padding because the space must immediately follow the emoji.
-fn weather_symbol(code: Option<u8>, hour: u8) -> String {
-    match code {
-        None => "-".to_string(),
-        Some(c) => {
-            let sym = wmo_to_symbol(c, hour);
-            if sym.width() == 1 {
-                format!("{} ", sym)
-            } else {
-                sym.to_string()
-            }
-        }
-    }
-}
-
 /// Dedup consecutive identical values, replacing duplicates with empty strings
 /// e.g. `dedup(["foo", "foo", "foo", "bar", "bar", "baz"]) == ["foo", "", "", "bar", "", "baz"]`.
 pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -119,23 +83,6 @@ pub fn dedup(items: impl IntoIterator<Item = String>) -> Vec<String> {
             std::iter::once(key).chain(std::iter::repeat_n(String::new(), group.count() - 1))
         })
         .collect()
-}
-
-fn format_precip(precip: Option<f64>) -> String {
-    match precip {
-        Some(0.0) => String::new(),
-        Some(p) if p < 5. => format!("{p:.1}mm"),
-        Some(p) => format!("{p:.0}mm"),
-        None => "-".to_string(),
-    }
-}
-
-fn format_temp(temp: Option<f64>) -> String {
-    match temp {
-        // as i32 so -0.1 doesn't show up as -0
-        Some(t) => format!("{}°", t.round() as i32),
-        None => "-".to_string(),
-    }
 }
 
 /// Build a table displaying hourly forecast data for multiple models.
@@ -177,7 +124,7 @@ fn build_forecast_table(
                 continue;
             }
             let weather = weather_points.get(i);
-            symbols.push(weather_symbol(
+            symbols.push(format_wmo_symbol(
                 weather.and_then(|w| w.code),
                 time.hour() as u8,
             ));
@@ -211,7 +158,7 @@ async fn do_forecast(
     let date_range = parse_date_range(dates)?;
 
     let models: Vec<&str> = models.iter().map(|s| s.as_str()).collect();
-    let mut forecast = Forecast::download(location.latitude, location.longitude, &models).await?;
+    let mut forecast = download_forecast(location.latitude, location.longitude, &models).await?;
 
     let now = Local::now()
         .with_timezone(&forecast.timezone)
@@ -272,8 +219,8 @@ fn print_forecast_json(
                 longitude: forecast.location.longitude,
                 temperature: temp,
                 precipitation: precip,
-                weather_code: code,
-                weather_symbol: wmo_to_symbol(code, time.hour() as u8),
+                weather_code: code.0,
+                weather_symbol: code.raw_symbol(time.hour() as u8),
             });
         }
     }
@@ -290,7 +237,7 @@ fn print_forecast_json(
 /// and prints the result as a single-row table.
 async fn do_current(location: &str, json: bool, verbose: bool) -> anyhow::Result<()> {
     let location = resolve_location(location).await?;
-    let current = Current::download(location.latitude, location.longitude).await?;
+    let current = download_current(location.latitude, location.longitude).await?;
 
     if json {
         print_current_json(&current);
@@ -307,7 +254,7 @@ async fn do_current(location: &str, json: bool, verbose: bool) -> anyhow::Result
         )
         .column(
             "",
-            vec![weather_symbol(
+            vec![format_wmo_symbol(
                 current.weather.code,
                 current.time.hour() as u8,
             )],
@@ -333,8 +280,8 @@ fn print_current_json(current: &Current) {
         longitude: current.location.longitude,
         temperature: temp,
         precipitation: precip,
-        weather_code: code,
-        weather_symbol: wmo_to_symbol(code, current.time.hour() as u8),
+        weather_code: code.0,
+        weather_symbol: code.raw_symbol(current.time.hour() as u8),
     };
     println!("{}", serde_json::to_string(&output).unwrap());
 }
