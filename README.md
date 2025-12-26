@@ -64,8 +64,8 @@ The location is interpreted the same as for `forecast`.
 
 You can use the `--models` argument to `forecast` to specify a comma-separated list of
 forecast models to retrieve.  Each model will add two columns, one for temperature and one
-for precipitation.  The default is to retrieve and show GraphCast (`gfs_graphcast025`) and
-classic ECMWF (`ecmwf_ifs025`) forecasts.
+for precipitation.  The default is to retrieve and show the high-resolution ECMWF
+(`ecmwf_ifs`) forecast and the GraphCast (`gfs_graphcast025`) forecast.
 
 Here is the current list of known models, taken from [the
 documentation](https://open-meteo.com/en/docs). Note that not all of those work on all

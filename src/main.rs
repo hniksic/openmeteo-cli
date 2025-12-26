@@ -37,7 +37,7 @@ enum Command {
         #[arg(
             long,
             value_delimiter = ',',
-            default_value = "gfs_graphcast025,ecmwf_ifs025"
+            default_value = "ecmwf_ifs,gfs_graphcast025"
         )]
         models: Vec<String>,
 
