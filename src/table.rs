@@ -94,11 +94,7 @@ impl Table {
     }
 
     /// Compute layout for each group: column range and display span.
-    fn group_layouts<'a>(
-        &'a self,
-        widths: &[usize],
-        expand_for_names: bool,
-    ) -> Vec<GroupLayout<'a>> {
+    fn group_layouts(&self, widths: &[usize], expand_for_names: bool) -> Vec<GroupLayout<'_>> {
         let mut col = 0;
         self.all_groups()
             .map(|(name, count)| {
