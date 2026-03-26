@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Context};
-use chrono::{NaiveDateTime, TimeZone};
+use chrono::TimeZone;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ pub async fn download_forecast(
 
     #[derive(Debug, Deserialize)]
     struct HourlyData {
-        time: Vec<String>,
+        time: Vec<i64>,
         #[serde(flatten)]
         data: HashMap<String, Vec<serde_json::Value>>,
     }
@@ -46,6 +46,7 @@ pub async fn download_forecast(
         models: &'a str,
         forecast_days: u8,
         timezone: &'a str,
+        timeformat: &'a str,
     }
 
     let client = reqwest::Client::new();
@@ -60,6 +61,7 @@ pub async fn download_forecast(
             models: &models_str,
             forecast_days: MAX_FORECAST_DAYS,
             timezone: "auto",
+            timeformat: "unixtime",
         })
         .send()
         .await
@@ -75,11 +77,9 @@ pub async fn download_forecast(
         .hourly
         .time
         .iter()
-        .map(|t| {
-            let naive =
-                NaiveDateTime::parse_from_str(t, "%Y-%m-%dT%H:%M").expect("Failed to parse time");
+        .map(|&ts| {
             data.timezone
-                .from_local_datetime(&naive)
+                .timestamp_opt(ts, 0)
                 .unwrap()
                 .fixed_offset()
         })
@@ -146,7 +146,7 @@ pub async fn download_current(latitude: f64, longitude: f64) -> anyhow::Result<C
 
     #[derive(Debug, Deserialize)]
     struct CurrentData {
-        time: String,
+        time: i64,
         temperature_2m: Option<f64>,
         precipitation: Option<f64>,
         weather_code: Option<u8>,
@@ -158,6 +158,7 @@ pub async fn download_current(latitude: f64, longitude: f64) -> anyhow::Result<C
         longitude: f64,
         current: &'a str,
         timezone: &'a str,
+        timeformat: &'a str,
     }
 
     let client = reqwest::Client::new();
@@ -169,6 +170,7 @@ pub async fn download_current(latitude: f64, longitude: f64) -> anyhow::Result<C
             longitude,
             current: "temperature_2m,precipitation,weather_code",
             timezone: "auto",
+            timeformat: "unixtime",
         })
         .send()
         .await
@@ -180,11 +182,9 @@ pub async fn download_current(latitude: f64, longitude: f64) -> anyhow::Result<C
 
     let data: Response = response.json().await.context("JSON parsing failed")?;
 
-    let naive = NaiveDateTime::parse_from_str(&data.current.time, "%Y-%m-%dT%H:%M")
-        .context("Failed to parse time")?;
     let time = data
         .timezone
-        .from_local_datetime(&naive)
+        .timestamp_opt(data.current.time, 0)
         .unwrap()
         .fixed_offset();
 
